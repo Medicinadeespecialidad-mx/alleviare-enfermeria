@@ -186,7 +186,8 @@ begin
   into out
   from public.docs d
   where d.updated_at > coalesce(p_since, 'epoch'::timestamptz)
-    and (clinico or d.col in ('patients','shifts','items','moves','config'));
+    and (clinico or d.col in ('patients','shifts','items','moves','config','ventas'))
+    and (d.col <> 'ventas' or public._can(me, 'administracion'));
   return out;
 end $$;
 
@@ -198,9 +199,10 @@ begin
   ok := case p_col
     when 'patients' then public._can(me,'enfermeria') or public._can(me,'coordinacion')
     when 'shifts'   then public._can(me,'enfermeria') or public._can(me,'coordinacion')
-    when 'items'    then public._can(me,'enfermeria') or public._can(me,'inventario') or public._can(me,'coordinacion')
-    when 'moves'    then public._can(me,'enfermeria') or public._can(me,'inventario') or public._can(me,'coordinacion')
+    when 'items'    then public._can(me,'enfermeria') or public._can(me,'inventario') or public._can(me,'coordinacion') or public._can(me,'administracion')
+    when 'moves'    then public._can(me,'enfermeria') or public._can(me,'inventario') or public._can(me,'coordinacion') or public._can(me,'administracion')
     when 'config'   then public._can(me,'administracion')
+    when 'ventas'   then public._can(me,'administracion')
     else false end;
   if not ok then raise exception 'sin_permiso'; end if;
   insert into public.docs (col, id, data, deleted, updated_at, updated_by)
@@ -215,7 +217,8 @@ returns void language plpgsql security definer set search_path = public, extensi
 declare me public.staff;
 begin
   me := public._me(p_token);
-  if p_col <> 'items' or not (public._can(me,'inventario') or public._can(me,'enfermeria')) then raise exception 'sin_permiso'; end if;
+  if not ((p_col = 'items' and (public._can(me,'inventario') or public._can(me,'enfermeria') or public._can(me,'administracion')))
+       or (p_col = 'ventas' and public._can(me,'administracion'))) then raise exception 'sin_permiso'; end if;
   update public.docs set deleted = true, updated_at = clock_timestamp(), updated_by = me.nombre where col = p_col and id = p_id;
   insert into public.bitacora (staff, accion, col, doc_id) values (me.nombre, 'borrar', p_col, p_id);
 end $$;
