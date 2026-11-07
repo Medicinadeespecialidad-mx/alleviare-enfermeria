@@ -1280,7 +1280,7 @@ const catFromItem = it => it ? ({ Medicamento: "med", "Solución": "sol", Equipo
 
 /* --- cotización calculada desde los turnos + ajustes de Administración --- */
 const cotDoc = pid => { const id = "cot_" + pid; return S.ventas[id] ? S.ventas[id] : { id, doc: "cot", pid, ajustes: {}, extras: [], cliente: {}, pago: { metodo: "Transferencia" }, tipo: "Cotización", notas: "", emitidas: [] }; };
-let admTab = "cot", admSel = { pid: "", desde: "", hasta: "" };
+let admTab = "pac", admSel = { pid: "", desde: "", hasta: "" };
 function cotizacion(pid, desde, hasta) {
   const p = S.patients[pid]; if (!p) return null; const q = cotDoc(pid);
   const sh = shiftsOf(pid).filter(s => (!desde || s.fecha >= desde) && (!hasta || s.fecha <= hasta)).reverse();
@@ -1328,9 +1328,13 @@ function admHTML() {
   if (!admSel.desde) { const d = new Date(); admSel.desde = ymd(new Date(d.getFullYear(), d.getMonth(), 1)); admSel.hasta = today(); }
   if (!admSel.pid && ps[0]) admSel.pid = ps[0].id;
   const nAl = invAlertas().total;
-  const tabs = `<div class="tabs" id="atabs">${[["cot", "Cotización por paciente"], ["cat", "Catálogo y precios"], ["alr", "Alertas de insumos" + (nAl ? ` <span class="pill bad">${nAl}</span>` : "")], ["emp", "Empresa y pagos"]].map(([id, l]) => `<button data-atab="${id}" class="${admTab === id ? "on" : ""}">${l}</button>`).join("")}</div>`;
+  const tabs = `<div class="tabs" id="atabs">${[["pac", "Pacientes"], ["cot", "Cotizar"], ["cob", "Cobranza"], ["gas", "Gastos"], ["con", "Contabilidad del mes"], ["cat", "Catálogo y precios"], ["alr", "Alertas de insumos" + (nAl ? ` <span class="pill bad">${nAl}</span>` : "")], ["emp", "Empresa y pagos"]].map(([id, l]) => `<button data-atab="${id}" class="${admTab === id ? "on" : ""}">${l}</button>`).join("")}</div>`;
   let body = "";
   if (admTab === "cat") body = catalogoHTML();
+  else if (admTab === "pac") body = pacientesAdmHTML();
+  else if (admTab === "cob") body = cobranzaHTML();
+  else if (admTab === "gas") body = gastosHTML();
+  else if (admTab === "con") body = contabilidadHTML();
   else if (admTab === "alr") body = alertasHTML();
   else if (admTab === "emp") body = empresaHTML();
   else if (!ps.length) body = emptyDemo();
@@ -1578,6 +1582,7 @@ function openCotDoc() {
   if (c.q.pago.metodo === "Liga de pago" && !c.q.pago.ligaUrl && !e.ligas.find(x => x.id === c.q.pago.ligaId)) return toast("Elige o pega la liga de pago");
   const folio = nextFolio(c.q.tipo); let blob; try { blob = cotPDFBlob(c, folio); } catch (er) { console.error(er); return toast("No se pudo generar el PDF: " + er.message); }
   const q = c.q; q.emitidas = (q.emitidas || []).concat([{ folio, tipo: q.tipo || "Cotización", total: c.total, t: iso(), por: APP.user, desde: admSel.desde, hasta: admSel.hasta }]); S.ventas[q.id] = q; Store.put("ventas", q);
+  const cl0 = q.cliente || {}; Store.put("ventas", { id: "venta_" + folio, doc: "venta", folio, tipo: q.tipo || "Cotización", pid: c.p.id, paciente: c.p.nombre, cliente: cl0.nombre || c.p.responsable || c.p.nombre, tel: cl0.tel || "", correo: cl0.correo || "", desde: admSel.desde, hasta: admSel.hasta, sub: c.sub, iva: c.iva, total: c.total, base: c.base, metodo: q.pago.metodo, lines: c.act.map(l => ({ concepto: l.concepto, cat: l.cat, unidad: l.unidad, cant: l.cant, pu: l.pu, iva: l.iva })), pagos: [], t: iso(), por: APP.user, estadoCot: q.tipo === "Nota de venta" ? "" : "Enviada" });
   const fname = `${(q.tipo || "Cotización").replace(/ /g, "_")}_${folio}_${c.p.nombre.replace(/[^\wÁÉÍÓÚÑáéíóúñ]+/g, "_")}.pdf`;
   const cl = q.cliente || {}; const tel = String(cl.tel || "").replace(/\D/g, "");
   const texto = `Alleviare · ${q.tipo || "Cotización"} ${folio}\nPaciente: ${c.p.nombre}\nTotal: ${money(c.total)} (IVA incluido)\nSe adjunta el documento en PDF.`;
@@ -1590,6 +1595,162 @@ function openCotDoc() {
   $("#cd-dl").onclick = () => saveFile(fname, blob);
   $("#cd-share").onclick = async () => { const file = new File([blob], fname, { type: "application/pdf" }); try { if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: fname, text: texto }); $("#cd-msg").textContent = "Enviado."; return; } } catch (er) { if (er && er.name === "AbortError") return; } $("#cd-msg").textContent = "Este navegador no permite enviar archivos directamente. Se descargó el PDF para adjuntarlo."; await saveFile(fname, blob); };
   render();
+}
+
+/* ============ ADMINISTRACIÓN: cobranza, pacientes, gastos y contabilidad mensual ============ */
+const ventasDocs = () => Object.values(S.ventas || {}).filter(x => x.doc === "venta" && !x.cancelada);
+const pagadoDe = v => r2((v.pagos || []).filter(p => !p.anulado).reduce((a, p) => a + (+p.monto || 0), 0));
+const esCxC = v => v.tipo === "Nota de venta" || v.estadoCot === "Aceptada";
+function estadoVenta(v) {
+  if (v.tipo !== "Nota de venta" && v.estadoCot !== "Aceptada") return v.estadoCot === "Rechazada" ? ["muted", "Rechazada"] : ["acc", "Cotización enviada"];
+  const pg = pagadoDe(v); if (pg >= v.total - 0.009) return ["ok", "Pagado"]; if (pg > 0) return ["warn", "Pago parcial"];
+  return daysTo(v.t.slice(0, 10)) < -30 ? ["bad", "Vencido"] : ["warn", "Por cobrar"];
+}
+const GASTO_CATS = ["Compra de medicamentos", "Compra de insumos y material de curación", "Equipo (compra o mantenimiento)", "Honorarios de enfermería", "Honorarios médicos y terapeutas", "Nómina administrativa", "Renta y servicios de oficina", "Transporte y gasolina", "Publicidad y marketing", "Comisiones bancarias y de pago", "Impuestos y derechos", "Contabilidad y asesoría", "Otros gastos"];
+const gastos = () => Object.values(S.ventas || {}).filter(x => x.doc === "gasto" && !x.anulado);
+const mesDe = s => String(s || "").slice(0, 7);
+const mesTxt = m => { const [y, mm] = m.split("-"); return ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"][+mm - 1] + " " + y; };
+const mesPrev = m => { const [y, mm] = m.split("-").map(Number); const d = new Date(y, mm - 2, 1); return ymd(d).slice(0, 7); };
+let finMes = "", cobFiltro = "pend";
+
+/* --- cobranza --- */
+function cobranzaHTML() {
+  const vs = ventasDocs().sort((a, b) => b.t.localeCompare(a.t));
+  const cxc = vs.filter(esCxC); const saldo = r2(cxc.reduce((a, v) => a + Math.max(0, v.total - pagadoDe(v)), 0));
+  const mes = today().slice(0, 7); const cobradoMes = r2(vs.flatMap(v => (v.pagos || []).filter(p => !p.anulado && mesDe(p.fecha) === mes)).reduce((a, p) => a + +p.monto, 0));
+  const venc = cxc.filter(v => estadoVenta(v)[1] === "Vencido");
+  const xs = cobFiltro === "pend" ? cxc.filter(v => pagadoDe(v) < v.total - 0.009) : cobFiltro === "pag" ? cxc.filter(v => pagadoDe(v) >= v.total - 0.009) : cobFiltro === "cot" ? vs.filter(v => !esCxC(v)) : vs;
+  return `<div class="stack">
+    <div class="kpis"><div class="kpi ${saldo ? "warn" : "ok"}"><b class="kmoney">${money(saldo)}</b><span>Por cobrar</span></div><div class="kpi ok"><b class="kmoney">${money(cobradoMes)}</b><span>Cobrado en ${mesTxt(mes)}</span></div><div class="kpi ${venc.length ? "bad" : "ok"}"><b>${venc.length}</b><span>Vencidos (más de 30 días)</span></div><div class="kpi"><b>${vs.filter(v => !esCxC(v) && v.estadoCot !== "Rechazada").length}</b><span>Cotizaciones sin respuesta</span></div></div>
+    <div class="tabs" id="cobt">${[["pend", "Por cobrar"], ["pag", "Pagados"], ["cot", "Cotizaciones"], ["all", "Todos"]].map(([id, l]) => `<button data-cobf="${id}" class="${cobFiltro === id ? "on" : ""}">${l}</button>`).join("")}</div>
+    ${xs.length ? `<div class="card stack" style="gap:0;padding:4px 16px">${xs.map(v => { const [c, t] = estadoVenta(v); const pg = pagadoDe(v); return `<div class="cl"><div class="cl-h"><span><b>${esc(v.folio)}</b> · ${esc(v.paciente)}</span><b class="num">${money(v.total)}</b></div>
+      <div class="cl-h small muted" style="margin-top:2px"><span>${esc(v.tipo)} · ${fmtD(v.t)} · ${esc(v.cliente || "")}</span><span class="pill ${c}">${esc(t)}</span></div>
+      ${esCxC(v) ? `<div class="small" style="margin-top:4px">Pagado ${money(pg)} · <b>Saldo ${money(Math.max(0, v.total - pg))}</b>${(v.pagos || []).filter(p => !p.anulado).length ? `<div class="muted">${v.pagos.filter(p => !p.anulado).map(p => `${fmtD(p.fecha)} ${money(p.monto)} ${esc(p.metodo)}${p.ref ? " (" + esc(p.ref) + ")" : ""}`).join(" · ")}</div>` : ""}</div>` : ""}
+      <div class="row" style="margin-top:6px">${esCxC(v) && pg < v.total - 0.009 ? `<button class="btn sm" data-pay="${v.id}">Registrar pago</button>` : ""}${!esCxC(v) && v.estadoCot !== "Rechazada" ? `<button class="btn sm" data-cotok="${v.id}">Aceptada por el paciente</button><button class="btn quiet sm" data-cotno="${v.id}">Rechazada</button>` : ""}<button class="link small" data-vcancel="${v.id}">Cancelar documento</button></div></div>`; }).join("")}</div>` : `<div class="empty">Sin documentos en esta lista. Se crean al generar el PDF de una cotización o nota de venta.</div>`}
+  </div>`;
+}
+document.addEventListener("click", e => {
+  const f = e.target.closest("[data-cobf]"); if (f) { cobFiltro = f.dataset.cobf; render(); }
+  const ok = e.target.closest("[data-cotok]"); if (ok) { const v = S.ventas[ok.dataset.cotok]; v.estadoCot = "Aceptada"; v.aceptadaEn = iso(); v.aceptadaPor = APP.user; Store.put("ventas", v); render(); toast("Cotización aceptada: ya cuenta como cuenta por cobrar"); }
+  const no = e.target.closest("[data-cotno]"); if (no) { const v = S.ventas[no.dataset.cotno]; v.estadoCot = "Rechazada"; Store.put("ventas", v); render(); }
+  const cc = e.target.closest("[data-vcancel]"); if (cc) { const v = S.ventas[cc.dataset.vcancel]; askReason("Cancelar " + v.folio, "Motivo de la cancelación (queda registrado)", r => { v.cancelada = true; v.canceladaMotivo = r; v.canceladaPor = APP.user; v.canceladaEn = iso(); Store.put("ventas", v); render(); }); }
+  const pb = e.target.closest("[data-pay]"); if (pb) openPago(pb.dataset.pay);
+});
+function openPago(id) {
+  const v = S.ventas[id]; const saldo = r2(v.total - pagadoDe(v)); const e = empresa();
+  const o = { fecha: today(), monto: saldo, metodo: v.metodo || "Transferencia", ref: "", cuenta: "" }; const k = bnd(o);
+  modal(`<h2>Registrar pago · ${esc(v.folio)}</h2><p class="muted">${esc(v.paciente)} · saldo ${money(saldo)}</p>
+    <div class="fieldgrid">${F("Fecha del pago", I(k, o, "fecha", 'type="date"'))}${F("Monto recibido", I(k, o, "monto", 'type="number" min="0" step="0.01" inputmode="decimal"'))}${F("Método", SEL(k, o, "metodo", ["Transferencia", "Liga de pago", "Tarjeta (terminal)", "Efectivo", "Cheque"]))}${e.cuentas.length ? F("Cuenta donde entró", SEL(k, o, "cuenta", e.cuentas.map(c => [c.banco + " " + (c.clabe || c.cuenta).slice(-4), c.banco + " · " + (c.clabe || c.cuenta).slice(-4)]))) : ""}${F("Referencia o folio bancario", I(k, o, "ref"), "full")}</div>
+    <div class="row"><button class="btn" id="pay-ok">Guardar pago</button><button class="btn quiet" data-close>Cancelar</button></div>`);
+  $("#pay-ok").onclick = () => { const m = +o.monto; if (!(m > 0)) return toast("Escribe el monto"); if (m > saldo + 0.009) return toast("El monto es mayor al saldo (" + money(saldo) + ")"); v.pagos = (v.pagos || []).concat([{ id: uid("pg"), fecha: o.fecha, monto: r2(m), metodo: o.metodo, cuenta: o.cuenta, ref: o.ref, por: APP.user, t: iso() }]); Store.put("ventas", v); closeModal(); render(); toast(m >= saldo - 0.009 ? "Pagado por completo" : "Pago parcial registrado"); };
+}
+
+/* --- control de pacientes --- */
+function pacientesAdmHTML() {
+  const mes = today().slice(0, 7); const vs = ventasDocs();
+  const rows = patients().sort((a, b) => a.nombre.localeCompare(b.nombre)).map(p => { const sh = shiftsOf(p.id); const pv = vs.filter(v => v.pid === p.id); const cxc = pv.filter(esCxC);
+    const vendido = r2(cxc.reduce((a, v) => a + v.total, 0)), cobrado = r2(cxc.reduce((a, v) => a + pagadoDe(v), 0));
+    const ult = sh[0]; const ultDoc = pv.sort((a, b) => b.t.localeCompare(a.t))[0];
+    const sinCot = sh.filter(s => !pv.some(v => (!v.desde || s.fecha >= v.desde) && (!v.hasta || s.fecha <= v.hasta))).length;
+    return { p, sh, mesN: sh.filter(s => mesDe(s.fecha) === mes).length, vendido, cobrado, saldo: r2(vendido - cobrado), ult, ultDoc, sinCot }; });
+  return `<div class="stack">
+    <div class="kpis"><div class="kpi"><b>${rows.filter(r => r.p.estado === "activo").length}</b><span>Pacientes activos</span></div><div class="kpi ${rows.some(r => r.saldo > 0) ? "warn" : "ok"}"><b>${rows.filter(r => r.saldo > 0).length}</b><span>Con saldo pendiente</span></div><div class="kpi ${rows.some(r => r.sinCot) ? "warn" : "ok"}"><b>${rows.filter(r => r.sinCot).length}</b><span>Con atenciones sin cotizar</span></div></div>
+    ${rows.length ? `<div class="card stack" style="gap:0;padding:4px 16px">${rows.map(r => `<div class="cl"><div class="cl-h"><span><b>${esc(r.p.nombre)}</b> <span class="pill ${r.p.estado === "activo" ? "ok" : "muted"}">${esc(r.p.estado || "")}</span></span><b class="num">${r.saldo > 0 ? `<span style="color:var(--bad,#B3261E)">Saldo ${money(r.saldo)}</span>` : r.vendido ? "Al corriente" : ""}</b></div>
+      <div class="small muted" style="margin-top:2px">${r.mesN} atenciones este mes · última ${r.ult ? fmtD(r.ult.fecha) + " (" + esc(r.ult.enfermera) + ")" : "—"} · vendido ${money(r.vendido)} · cobrado ${money(r.cobrado)}${r.ultDoc ? " · último documento " + esc(r.ultDoc.folio) : ""}</div>
+      <div class="row" style="margin-top:6px">${r.sinCot ? `<span class="pill warn">${r.sinCot} atención(es) sin cotizar</span>` : ""}<button class="btn ghost sm" data-adm-cot="${r.p.id}">Cotizar</button></div></div>`).join("")}</div>` : emptyDemo()}
+  </div>`;
+}
+document.addEventListener("click", e => { const b = e.target.closest("[data-adm-cot]"); if (b) { admSel.pid = b.dataset.admCot; admTab = "cot"; render(); window.scrollTo(0, 0); } });
+
+/* --- gastos --- */
+function gastosHTML() {
+  if (!finMes) finMes = today().slice(0, 7);
+  const xs = gastos().filter(g => mesDe(g.fecha) === finMes).sort((a, b) => b.fecha.localeCompare(a.fecha));
+  const tot = r2(xs.reduce((a, g) => a + +g.monto, 0)); const porCat = {}; xs.forEach(g => porCat[g.cat] = r2((porCat[g.cat] || 0) + +g.monto));
+  return `<div class="stack">
+    <div class="row between">${F("Mes", `<input type="month" id="fin-mes" value="${finMes}">`)}<button class="btn" id="gas-new">+ Registrar gasto</button></div>
+    <div class="kpis"><div class="kpi"><b class="kmoney">${money(tot)}</b><span>Gastos de ${mesTxt(finMes)}</span></div><div class="kpi"><b>${xs.length}</b><span>Registros</span></div></div>
+    ${Object.keys(porCat).length ? `<div class="card stack"><div class="sec-t">Por categoría</div>${Object.entries(porCat).sort((a, b) => b[1] - a[1]).map(([c, m]) => `<div class="row between small"><span>${esc(c)}</span><b class="num">${money(m)}</b></div><div style="height:6px;background:var(--sunk);border-radius:4px"><div style="height:6px;border-radius:4px;background:var(--accent);width:${Math.round(100 * m / tot)}%"></div></div>`).join("")}</div>` : ""}
+    ${xs.length ? `<div class="card stack" style="gap:0;padding:4px 16px">${xs.map(g => `<div class="cl"><div class="cl-h"><span><b>${esc(g.concepto)}</b></span><b class="num">${money(g.monto)}</b></div><div class="cl-h small muted"><span>${fmtD(g.fecha)} · ${esc(g.cat)}${g.proveedor ? " · " + esc(g.proveedor) : ""}${+g.iva ? " · IVA " + money(g.iva) : ""}${g.factura ? " · con factura" : ""}</span><span><button class="link" data-gas-ed="${g.id}">Editar</button></span></div></div>`).join("")}</div>` : `<div class="empty">Sin gastos registrados en ${mesTxt(finMes)}.</div>`}
+  </div>`;
+}
+document.addEventListener("change", e => { if (e.target.id === "fin-mes" && e.target.value) { finMes = e.target.value; render(); } });
+document.addEventListener("click", e => { if (e.target.id === "gas-new") openGasto(); const g = e.target.closest("[data-gas-ed]"); if (g) openGasto(g.dataset.gasEd); });
+function openGasto(id) {
+  const ex = id ? S.ventas[id] : null; const o = ex ? clone(ex) : { doc: "gasto", fecha: today(), cat: "", concepto: "", proveedor: "", monto: "", iva: "", metodo: "Transferencia", factura: false, notas: "" }; const k = bnd(o);
+  modal(`<h2>${ex ? "Editar gasto" : "Registrar gasto"}</h2>
+    <div class="fieldgrid">${F("Fecha", I(k, o, "fecha", 'type="date"'))}${F("Categoría", SEL(k, o, "cat", GASTO_CATS))}${F("Concepto", I(k, o, "concepto", 'placeholder="Ej. Compra de jeringas y gasas a proveedor"'), "full")}${F("Proveedor o beneficiario", I(k, o, "proveedor"))}${F("Método de pago", SEL(k, o, "metodo", ["Transferencia", "Tarjeta", "Efectivo", "Cheque"]))}${F("Total pagado (con IVA)", I(k, o, "monto", 'type="number" min="0" step="0.01" inputmode="decimal"'))}${F("IVA incluido (acreditable)", I(k, o, "iva", 'type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00"'))}</div>
+    <label class="row"><input type="checkbox" data-o="${k}" data-b="factura" ${o.factura ? "checked" : ""}> Cuenta con factura (CFDI) para deducir</label>
+    ${F("Notas", TA(k, o, "notas", 'rows="2"'))}
+    <div class="row"><button class="btn" id="gas-ok">Guardar</button>${ex ? `<button class="btn danger" id="gas-del">Eliminar</button>` : ""}<button class="btn quiet" data-close>Cancelar</button></div>`);
+  $("#gas-ok").onclick = () => { if (!o.cat) return toast("Elige la categoría"); if (!String(o.concepto).trim()) return toast("Escribe el concepto"); if (!(+o.monto > 0)) return toast("Escribe el monto"); const g = Object.assign(ex || { id: "gas_" + uid("g").slice(-10), creadoEn: iso(), creadoPor: APP.user }, o); g.monto = r2(+o.monto); g.iva = r2(+o.iva || 0); Store.put("ventas", g); finMes = mesDe(g.fecha); closeModal(); render(); toast("Gasto guardado"); };
+  if (ex) $("#gas-del").onclick = () => askReason("Eliminar gasto", "Motivo (queda registrado)", r => { ex.anulado = true; ex.anuladoMotivo = r; ex.anuladoPor = APP.user; Store.put("ventas", ex); closeModal(); render(); });
+}
+
+/* --- contabilidad mensual y áreas de oportunidad --- */
+function finMesData(m) {
+  const vs = ventasDocs(); const cxc = vs.filter(esCxC);
+  const vendido = r2(cxc.filter(v => mesDe(v.t) === m).reduce((a, v) => a + v.total, 0));
+  const ivaVend = r2(cxc.filter(v => mesDe(v.t) === m).reduce((a, v) => a + (v.iva || 0), 0));
+  const pagos = vs.flatMap(v => (v.pagos || []).filter(p => !p.anulado && mesDe(p.fecha) === m).map(p => Object.assign({ v }, p)));
+  const cobrado = r2(pagos.reduce((a, p) => a + +p.monto, 0));
+  const gs = gastos().filter(g => mesDe(g.fecha) === m); const gasto = r2(gs.reduce((a, g) => a + +g.monto, 0)); const ivaAcr = r2(gs.reduce((a, g) => a + (+g.iva || 0), 0));
+  const porCat = {}; gs.forEach(g => porCat[g.cat] = r2((porCat[g.cat] || 0) + +g.monto));
+  const porConcepto = {}; cxc.filter(v => mesDe(v.t) === m).forEach(v => (v.lines || []).forEach(l => { porConcepto[l.concepto] = r2((porConcepto[l.concepto] || 0) + l.cant * l.pu); }));
+  const consumo = Object.values(S.moves).filter(mv => mv.tipo === "consumo" && mesDe(mv.t) === m); const costoIns = r2(consumo.reduce((a, mv) => a + (-mv.cantidad) * (+(S.items[mv.itemId] || {}).precio || 0), 0));
+  const atenc = Object.values(S.shifts).filter(s => mesDe(s.fecha) === m);
+  const sinCot = atenc.filter(s => !vs.some(v => v.pid === s.patientId && (!v.desde || s.fecha >= v.desde) && (!v.hasta || s.fecha <= v.hasta)));
+  const enviadas = vs.filter(v => v.tipo !== "Nota de venta" && mesDe(v.t) === m); const acept = enviadas.filter(v => v.estadoCot === "Aceptada");
+  return { m, vendido, ivaVend, cobrado, gasto, ivaAcr, porCat, porConcepto, costoIns, atenc, sinCot, enviadas, acept, utilidad: r2(cobrado - gasto), utilVenta: r2(vendido - gasto) };
+}
+function oportunidades(d, prev) {
+  const o = []; const e = empresa(); const vs = ventasDocs().filter(esCxC);
+  const venc = vs.filter(v => estadoVenta(v)[1] === "Vencido"); if (venc.length) o.push(["bad", `Cobranza: ${venc.length} documento(s) con más de 30 días sin pagar por ${money(venc.reduce((a, v) => a + v.total - pagadoDe(v), 0))}. Dar seguimiento o pedir anticipo en servicios largos.`]);
+  if (d.sinCot.length) o.push(["warn", `${d.sinCot.length} atención(es) del mes no están en ninguna cotización o nota de venta: servicios dados que no se han cobrado.`]);
+  if (d.enviadas.length >= 3 && d.acept.length / d.enviadas.length < 0.5) o.push(["warn", `Solo se aceptaron ${d.acept.length} de ${d.enviadas.length} cotizaciones (${Math.round(100 * d.acept.length / d.enviadas.length)} %). Revisar precios o dar seguimiento a las enviadas.`]);
+  if (d.vendido && d.gasto / d.vendido > 0.75) o.push(["bad", `Los gastos son el ${Math.round(100 * d.gasto / d.vendido)} % de lo vendido. El margen es muy bajo: revisar honorarios, cuotas Alleviare y costos de insumos.`]);
+  Object.entries(d.porCat).forEach(([c, m]) => { const pm = prev.porCat[c] || 0; if (pm && m > pm * 1.2 && m - pm > 1000) o.push(["warn", `${c} subió ${Math.round(100 * (m - pm) / pm)} % contra ${mesTxt(prev.m)} (${money(pm)} → ${money(m)}).`]); });
+  const bajos = catalogo().filter(c => catOf(c.cat)[2] === "producto" && +c.costo && precioCat(c) < +c.costo * (1 + e.margenMin / 100) - 0.5); if (bajos.length) o.push(["warn", `${bajos.length} producto(s) se venden con margen menor a ${e.margenMin} %: ${bajos.slice(0, 4).map(c => c.nombre).join(", ")}${bajos.length > 4 ? "…" : ""}.`]);
+  const sinPrecio = catalogo().filter(c => !precioCat(c)); if (sinPrecio.length) o.push(["acc", `${sinPrecio.length} concepto(s) del catálogo sin precio: las cotizaciones de esos servicios quedarán incompletas.`]);
+  const cad = Object.values(S.items).filter(i => +i.cantidad > 0 && daysTo(i.caducidad) < 0); const merma = r2(cad.reduce((a, i) => a + i.cantidad * (+i.precio || 0), 0)); if (cad.length) o.push(["warn", `Merma por caducidad: ${cad.length} producto(s) caducados${merma ? " con costo de " + money(merma) : ""}. Ajustar mínimos y rotar primero lo que caduca antes.`]);
+  const porCad = Object.values(S.items).filter(i => +i.cantidad > 0 && daysTo(i.caducidad) >= 0 && daysTo(i.caducidad) <= 60); if (porCad.length) o.push(["acc", `${porCad.length} producto(s) caducan en 60 días: priorizar su uso.`]);
+  if (!d.gasto && (d.vendido || d.cobrado)) o.push(["acc", "No hay gastos registrados este mes: la utilidad mostrada no es real hasta capturarlos."]);
+  const top = Object.entries(d.porConcepto).sort((a, b) => b[1] - a[1])[0]; if (top) o.push(["ok", `El concepto que más vendió fue "${top[0]}" con ${money(top[1])}.`]);
+  if (!o.length) o.push(["ok", "Sin alertas este mes."]);
+  return o;
+}
+function contabilidadHTML() {
+  if (!finMes) finMes = today().slice(0, 7);
+  const d = finMesData(finMes), p = finMesData(mesPrev(finMes)); const op = oportunidades(d, p);
+  const delta = (a, b) => b ? ` <span class="small ${a >= b ? "" : "muted"}">${a >= b ? "▲" : "▼"} ${Math.abs(Math.round(100 * (a - b) / b))} %</span>` : "";
+  return `<div class="stack">
+    <div class="row between">${F("Mes", `<input type="month" id="fin-mes" value="${finMes}">`)}<button class="btn ghost" id="fin-pdf">Reporte del mes en PDF</button></div>
+    <div class="kpis"><div class="kpi"><b class="kmoney">${money(d.vendido)}</b><span>Vendido (notas y cotizaciones aceptadas)${delta(d.vendido, p.vendido)}</span></div><div class="kpi ok"><b class="kmoney">${money(d.cobrado)}</b><span>Cobrado${delta(d.cobrado, p.cobrado)}</span></div><div class="kpi"><b class="kmoney">${money(d.gasto)}</b><span>Gastado${delta(d.gasto, p.gasto)}</span></div><div class="kpi ${d.utilidad >= 0 ? "ok" : "bad"}"><b class="kmoney">${money(d.utilidad)}</b><span>Ganancia (cobrado − gastado)</span></div></div>
+    <div class="card stack"><div class="sec-t">Resumen de ${mesTxt(finMes)}</div>
+      <div class="row between small"><span>Atenciones de enfermería</span><b>${d.atenc.length}</b></div>
+      <div class="row between small"><span>Cotizaciones enviadas / aceptadas</span><b>${d.enviadas.length} / ${d.acept.length}</b></div>
+      <div class="row between small"><span>Utilidad sobre lo vendido (vendido − gastado)</span><b class="num">${money(d.utilVenta)}${d.vendido ? " · " + Math.round(100 * d.utilVenta / d.vendido) + " %" : ""}</b></div>
+      <div class="row between small"><span>Costo de insumos usados (según costo de compra)</span><b class="num">${money(d.costoIns)}</b></div>
+      <div class="row between small"><span>IVA trasladado en ventas / IVA acreditable en gastos</span><b class="num">${money(d.ivaVend)} / ${money(d.ivaAcr)}</b></div>
+      <div class="row between small"><span>IVA estimado a pagar</span><b class="num">${money(Math.max(0, d.ivaVend - d.ivaAcr))}</b></div>
+      <p class="small muted">Estimación de control interno. La declaración se calcula con lo efectivamente cobrado y pagado y con los CFDI; confírmala con tu contador.</p></div>
+    <div class="card stack"><div class="sec-t">Áreas de oportunidad</div>${op.map(([c, t]) => `<div class="row small" style="align-items:flex-start;gap:8px"><span class="pill ${c}" style="flex:none">${{ bad: "Atender", warn: "Revisar", acc: "Aviso", ok: "Bien" }[c]}</span><span>${esc(t)}</span></div>`).join("")}</div>
+    ${Object.keys(d.porCat).length ? `<div class="card stack"><div class="sec-t">Gastos por categoría</div>${Object.entries(d.porCat).sort((a, b) => b[1] - a[1]).map(([c, m]) => `<div class="row between small"><span>${esc(c)}</span><b class="num">${money(m)}</b></div>`).join("")}</div>` : ""}
+    ${Object.keys(d.porConcepto).length ? `<div class="card stack"><div class="sec-t">Ventas por concepto (sin IVA)</div>${Object.entries(d.porConcepto).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([c, m]) => `<div class="row between small"><span>${esc(c)}</span><b class="num">${money(m)}</b></div>`).join("")}</div>` : ""}
+  </div>`;
+}
+document.addEventListener("click", e => { if (e.target.id === "fin-pdf") finPDF(); });
+async function finPDF() {
+  if (!window.jspdf) return toast("La librería de PDF no cargó");
+  const d = finMesData(finMes), p = finMesData(mesPrev(finMes)); const op = oportunidades(d, p);
+  const { jsPDF } = window.jspdf; const doc = new jsPDF({ unit: "pt", format: "letter" }); const M = 40;
+  const st = { margin: { left: M, right: M }, theme: "grid", styles: { fontSize: 9, cellPadding: 4, lineColor: [236, 228, 230], lineWidth: .4, textColor: [45, 43, 66] }, headStyles: { fillColor: [239, 239, 249], textColor: [70, 72, 130], fontStyle: "bold" }, columnStyles: { 1: { halign: "right" }, 2: { halign: "right" } } };
+  pdfHeader(doc, "REPORTE MENSUAL DE ADMINISTRACIÓN", mesTxt(finMes) + " · " + fmtD(today()));
+  doc.autoTable(Object.assign({ startY: 92, head: [["Indicador", mesTxt(finMes), mesTxt(p.m)]], body: [["Vendido", money(d.vendido), money(p.vendido)], ["Cobrado", money(d.cobrado), money(p.cobrado)], ["Gastado", money(d.gasto), money(p.gasto)], ["Ganancia (cobrado − gastado)", money(d.utilidad), money(p.utilidad)], ["Utilidad sobre lo vendido", money(d.utilVenta), money(p.utilVenta)], ["Atenciones", String(d.atenc.length), String(p.atenc.length)], ["Cotizaciones enviadas / aceptadas", d.enviadas.length + " / " + d.acept.length, p.enviadas.length + " / " + p.acept.length], ["IVA trasladado / acreditable", money(d.ivaVend) + " / " + money(d.ivaAcr), money(p.ivaVend) + " / " + money(p.ivaAcr)]] }, st));
+  if (Object.keys(d.porCat).length) doc.autoTable(Object.assign({ startY: doc.lastAutoTable.finalY + 12, head: [["Gastos por categoría", "Monto", ""]], body: Object.entries(d.porCat).sort((a, b) => b[1] - a[1]).map(([c, m]) => [c, money(m), ""]) }, st));
+  doc.autoTable(Object.assign({}, st, { startY: doc.lastAutoTable.finalY + 12, head: [["Áreas de oportunidad"]], body: op.map(x => [x[1]]), columnStyles: {} }));
+  pdfFooter(doc, "Uso interno · " + mesTxt(finMes));
+  await saveFile("Reporte_" + finMes + ".pdf", doc.output("blob"));
 }
 
 /* ============ logo para PDF ============ */
