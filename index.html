@@ -524,7 +524,7 @@ function dirHTML() {
         <div class="row">${!n.activa ? `<span class="pill bad">Inactiva</span>` : !n.tienePin ? `<span class="pill warn">Debe crear contraseña</span>` : (n.permisos || []).length ? `<span class="pill ok">Con acceso</span>` : `<span class="pill warn">Pendiente de autorizar</span>`}${n.bloqueada ? `<span class="pill bad">Bloqueada 15 min</span>` : ""}</div></div>
       <div class="sec-t">Tiene acceso a</div>
       <div class="perms">${PERMS.map(([p, l, d]) => { const on = (n.permisos || []).includes(p); return `<label class="perm ${on ? "on" : ""} ${n.activa ? "" : "off"}"><input type="checkbox" data-perm="${p}" data-sid="${n.id}" ${on ? "checked" : ""} ${n.activa ? "" : "disabled"}><div><b>${l}</b><span>${d}</span></div></label>`; }).join("")}</div>
-      <div class="row"><button class="btn quiet sm" data-sreset="${n.id}">Restablecer contraseña</button><button class="btn ${n.activa ? "danger" : "quiet"} sm" data-stoggle="${n.id}" data-on="${n.activa ? 1 : 0}">${n.activa ? "Desactivar" : "Activar"}</button></div>
+      <div class="row"><button class="btn quiet sm" data-sreset="${n.id}">Restablecer contraseña</button><button class="btn ${n.activa ? "danger" : "quiet"} sm" data-stoggle="${n.id}" data-on="${n.activa ? 1 : 0}">${n.activa ? "Desactivar" : "Activar"}</button><button class="btn danger sm" data-sdel="${n.id}">Eliminar</button></div>
     </div>`;
   return `<div class="stack">
     <div class="row between"><h1>Dirección</h1><button class="btn ghost sm" id="dir-pass">Cambiar mi contraseña</button></div>
@@ -537,6 +537,10 @@ function dirHTML() {
 document.addEventListener("click", e => {
   const t = e.target.closest("[data-dtab]"); if (t) { dirFilter = t.dataset.dtab; render(); }
   const r = e.target.closest("[data-sreset]"); if (r) confirmBox("¿Restablecer la contraseña? La persona vuelve a \"Registrarme\" con los mismos datos y crea una nueva.", () => staffUpd(r.dataset.sreset, { p_reset: true }, "Contraseña restablecida"));
+  const x = e.target.closest("[data-sdel]"); if (x) { const n = (Store.staffAll || []).find(s => s.id === x.dataset.sdel); if (n) {
+    modal(`<h2>Eliminar a ${esc(n.nombre)}</h2><p>Su cuenta se borra y ya no aparecerá para entrar ni en las listas.</p><p class="small muted">Los turnos, firmas y movimientos de inventario que registró se conservan en los expedientes, como lo exige la NOM-004. Si solo dejará de trabajar por un tiempo, mejor usa "Desactivar".</p>${F("Para confirmar escribe ELIMINAR", `<input id="sd-c" autocomplete="off">`)}<div class="row"><button class="btn danger" id="sd-ok">Eliminar definitivamente</button><button class="btn quiet" data-close>Cancelar</button></div>`);
+    $("#sd-ok").onclick = () => { if ($("#sd-c").value.trim().toUpperCase() !== "ELIMINAR") return toast("Escribe ELIMINAR para confirmar"); SB.rpc("api_staff_delete", { p_token: SB.token(), p_id: n.id }).then(() => { closeModal(); Store.staffAll = Store.staffAll.filter(s => s.id !== n.id); SB.rpc("api_staff_list", {}).then(l => Store.staff = l).catch(() => { }); render(); toast("Cuenta eliminada"); }).catch(er => toast("No se pudo: " + er.code)); };
+  } }
   const g = e.target.closest("[data-stoggle]"); if (g) staffUpd(g.dataset.stoggle, { p_activa: g.dataset.on !== "1" }, g.dataset.on === "1" ? "Desactivada" : "Activada");
   if (e.target.id === "dir-pass") {
     modal(`<h2>Cambiar mi contraseña</h2>${F("Contraseña actual", `<input id="dp-a" type="password" autocomplete="current-password">`)}${F("Nueva contraseña (mínimo 8 caracteres)", `<input id="dp-n" type="password" autocomplete="new-password">`)}${F("Repite la nueva", `<input id="dp-n2" type="password" autocomplete="new-password">`)}<div class="row"><button class="btn" id="dp-ok">Guardar</button><button class="btn quiet" data-close>Cancelar</button></div>`);

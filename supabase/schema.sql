@@ -250,6 +250,21 @@ begin
   insert into public.bitacora (staff, accion, doc_id) values (me.nombre, 'permisos', p_id::text);
 end $$;
 
+-- Elimina la cuenta de una persona. Sus turnos, firmas y movimientos se conservan
+-- (el expediente guarda el nombre como texto; NOM-004-SSA3-2012 exige conservarlo).
+create or replace function public.api_staff_delete(p_token uuid, p_id uuid)
+returns void language plpgsql security definer set search_path = public, extensions as $$
+declare me public.staff; s public.staff;
+begin
+  me := public._me(p_token);
+  if not me.es_direccion then raise exception 'sin_permiso'; end if;
+  select * into s from public.staff where id = p_id and not es_direccion;
+  if s.id is null then raise exception 'no_encontrada'; end if;
+  delete from public.sessions where staff_id = p_id;
+  delete from public.staff where id = p_id;
+  insert into public.bitacora (staff, accion, doc_id) values (me.nombre, 'eliminó cuenta: ' || s.nombre || coalesce(' (cédula ' || s.cedula || ')', ''), p_id::text);
+end $$;
+
 -- Solo las funciones api_* son públicas.
 revoke all on function public._me(uuid) from public, anon, authenticated;
 revoke all on function public._session(uuid) from public, anon, authenticated;
@@ -257,4 +272,4 @@ revoke all on function public._check_login(public.staff, text) from public, anon
 grant execute on function public.api_staff_list(), public.api_register(text,text,text,text,text,date,text), public.api_login(uuid,text),
   public.api_dir_login(text,text), public.api_dir_password(uuid,text,text), public.api_logout(uuid), public.api_pull(uuid,timestamptz),
   public.api_put(uuid,text,text,jsonb), public.api_delete(uuid,text,text), public.api_staff_all(uuid),
-  public.api_staff_update(uuid,uuid,boolean,boolean,text[]) to anon, authenticated;
+  public.api_staff_update(uuid,uuid,boolean,boolean,text[]), public.api_staff_delete(uuid,uuid) to anon, authenticated;
