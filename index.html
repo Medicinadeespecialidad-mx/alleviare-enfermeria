@@ -458,7 +458,7 @@ function gateHTML() {
       <button class="btn" type="submit">Entrar</button>
       <p class="small muted">${nurses().length ? '¿No aparece tu nombre? Usa "Registrarme".' : 'Aún no hay enfermeras registradas. Usa "Registrarme".'}</p>
     </form>`}
-    ${Store.mode === "sb" ? `<p class="small muted">Conexión segura con el servidor de Alleviare.</p><button class="link small" id="go-dir">Acceso de Dirección</button>` : Store.mode === "local" ? `<p class="small muted">Modo de demostración en este dispositivo: los datos se guardan solo en este navegador.</p>` : `<p class="small muted">Registros compartidos con el equipo de Alleviare.</p>`}
+    ${Store.mode === "sb" ? `<p class="small muted">Conexión segura con el servidor de Alleviare.</p><button class="btn ghost sm" id="go-dir" style="align-self:center">Acceso de Dirección</button>` : Store.mode === "local" ? `<p class="small muted">Modo de demostración en este dispositivo: los datos se guardan solo en este navegador.</p>` : `<p class="small muted">Registros compartidos con el equipo de Alleviare.</p>`}
   </div>`;
 }
 function login(n) { APP.user = n.nombre; APP.nid = n.id; APP.cedula = n.cedula || ""; ss("al.user", n.nombre); ss("al.nid", n.id); ss("al.last", n.id); render(); toast("Bienvenida, " + n.nombre.split(" ")[0]); }
