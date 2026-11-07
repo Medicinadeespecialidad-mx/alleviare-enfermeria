@@ -589,6 +589,7 @@ function nurseHomeHTML() {
       <div id="q-res">${searchResults()}</div>
       <p class="small muted">Por privacidad no se muestra la lista de pacientes: solo aparecen los que coinciden con lo que escribes.</p>
     </div>
+    ${misServiciosHTML()}
     ${mine.length ? `<div class="stack"><div class="sec-t">Mis turnos abiertos</div>${mine.map(s => { const p = S.patients[s.patientId]; return p ? `<div class="card row between lvl lvl-${p.nivel}"><div><b>${esc(p.nombre)}</b><div class="small muted">${fmtD(s.fecha)} · ${esc(s.turno)}</div></div><button class="btn sm" data-go="${goA({ p: "shift", sid: s.id })}">Continuar turno</button></div>` : ""; }).join("")}</div>` : ""}
     ${!patients().length ? emptyDemo() : ""}
   </div>`;
@@ -770,7 +771,7 @@ function openStartShift(pid) {
   const p = S.patients[pid]; const prev = shiftsOf(pid).length;
   const h = new Date().getHours(); const o = { fecha: today(), turno: h >= 7 && h < 15 ? TURNOS[0] : h >= 15 && h < 21 ? TURNOS[1] : TURNOS[2], tipoAtencion: prev ? "Subsecuente" : "Primera vez" }; const k = bnd(o);
   modal(`<h2>Iniciar turno</h2><p class="muted">${esc(p.nombre)}</p><div class="fieldgrid">${F("Fecha", I(k, o, "fecha", 'type="date"'))}${F("Turno", SEL(k, o, "turno", TURNOS))}${F("Atención", CHIPS(k, o, "tipoAtencion", ["Primera vez", "Subsecuente"]), "full")}${F("Enfermera", `<input value="${esc(APP.user)}" disabled>`, "full")}</div><div class="row"><button class="btn" id="s-ok">Iniciar</button><button class="btn quiet" data-close>Cancelar</button></div>`);
-  $("#s-ok").onclick = () => { const prevS = shiftsOf(pid)[0]; const s = Object.assign({ id: uid("s"), patientId: pid, enfermera: APP.user, creadoEn: iso(), evaluaciones: [], admin: [], insumos: [], bomba: { usada: false }, acceso: prevS && prevS.acceso ? clone(prevS.acceso) : {}, servicio: { servicios: [], inicio: nowHM(), km: prevS && prevS.servicio ? prevS.servicio.km : "", distancia: prevS && prevS.servicio ? prevS.servicio.distancia : "" }, comentario: "", cerrado: false }, o); audit(s, "Inició turno"); Store.put("shifts", s); closeModal(); go({ p: "shift", sid: s.id }); };
+  $("#s-ok").onclick = () => { const prevS = shiftsOf(pid)[0]; const sv0 = srvOpenFor(pid); const s = Object.assign({ id: uid("s"), patientId: pid, servicioId: sv0 ? sv0.id : "", enfermera: APP.user, creadoEn: iso(), evaluaciones: [], admin: [], insumos: [], bomba: { usada: false }, acceso: prevS && prevS.acceso ? clone(prevS.acceso) : {}, servicio: { servicios: [], inicio: nowHM(), km: prevS && prevS.servicio ? prevS.servicio.km : "", distancia: prevS && prevS.servicio ? prevS.servicio.distancia : "" }, comentario: "", cerrado: false }, o); audit(s, "Inició turno"); Store.put("shifts", s); closeModal(); go({ p: "shift", sid: s.id }); };
 }
 const canEdit = s => !s.cerrado && norm(s.enfermera) === norm(APP.user) && APP.view === "enf";
 let openEv = null;
@@ -902,7 +903,7 @@ function insumosHTML(s, ed, k) {
   const xs = s.insumos || [];
   return `${xs.length ? `<div class="list card">${xs.map(x => `<div class="it"><div><b class="num">${x.cantidad}</b> × ${esc(x.nombre)}${x.lote ? ` <span class="small muted">lote ${esc(x.lote)}</span>` : ""}${x.libre ? ` <span class="pill warn">fuera de inventario</span>` : ""}</div><div class="small muted">${esc(x.por)}${ed ? ` · <button class="link" data-del-ins="${x.id}">quitar</button>` : ""}</div></div>`).join("")}</div>` : `<div class="empty">Sin insumos registrados.</div>`}
   ${rpbiHTML(s, k, ed)}
-  ${ed ? `<div class="row"><button class="btn sm" id="add-ins">Agregar insumo o medicamento</button><span class="small muted">Se descuenta de tu inventario al guardar.</span></div>` : ""}`;
+  ${ed ? `<div class="row"><button class="btn sm" id="add-ins">Agregar insumo o medicamento</button><span class="small muted">Queda apartado de tu inventario y se descuenta cuando Administración marca el servicio cumplido.</span></div>` : ""}`;
 }
 function consumeItem(s, itemId, qty) {
   const it = S.items[itemId]; if (!it) return null; it.cantidad = Math.max(0, +it.cantidad - qty); Store.put("items", it);
@@ -914,16 +915,16 @@ function openInsumo(sid) {
   const o = { itemId: "", cantidad: 1, libre: "", codigo: "" }; const k = bnd(o);
   modal(`<h2>Agregar insumo utilizado</h2>
     <div class="row"><div style="flex:1;min-width:0">${F("Código de barras", `<input id="ins-code" inputmode="numeric" placeholder="Escanea o escribe">`)}</div>${scanBtn("ins-code")}</div>
-    ${mine.length ? F("De mi inventario", `<select id="ins-sel" data-o="${k}" data-b="itemId"><option value="">Seleccionar…</option>${mine.sort((a, b) => a.nombre.localeCompare(b.nombre)).map(i => `<option value="${i.id}" ${+i.cantidad <= 0 || daysTo(i.caducidad) < 0 ? "disabled" : ""}>${esc(i.nombre)} · lote ${esc(i.lote || "—")} · cad ${fmtD(i.caducidad)} · quedan ${i.cantidad}${daysTo(i.caducidad) < 0 ? " · CADUCADO" : ""}</option>`).join("")}</select>`) : `<div class="alert warn">No tienes productos en tu inventario. Regístralos en "Mi inventario" para que se descuenten.</div>`}
+    ${mine.length ? F("De mi inventario", `<select id="ins-sel" data-o="${k}" data-b="itemId"><option value="">Seleccionar…</option>${mine.sort((a, b) => a.nombre.localeCompare(b.nombre)).map(i => `<option value="${i.id}" ${disponible(i) <= 0 || daysTo(i.caducidad) < 0 ? "disabled" : ""}>${esc(i.nombre)} · lote ${esc(i.lote || "—")} · cad ${fmtD(i.caducidad)} · disponibles ${disponible(i)}${daysTo(i.caducidad) < 0 ? " · CADUCADO" : ""}</option>`).join("")}</select>`) : `<div class="alert warn">No tienes productos en tu inventario. Regístralos en "Mi inventario" para que se descuenten.</div>`}
     ${F("Cantidad", I(k, o, "cantidad", 'type="number" min="1" step="1" inputmode="numeric"'))}
     ${F("¿No está en tu inventario? Escríbelo (no se descuenta)", I(k, o, "libre", 'placeholder="Ej. Kit de canalización"'))}
     <div class="row"><button class="btn" id="ins-ok">Guardar</button><button class="btn quiet" data-close>Cancelar</button></div>`);
   const codeEl = $("#ins-code");
-  const onCode = () => { const c = codeEl.value.trim(); if (!c) return; const hits = mine.filter(i => i.codigo === c && +i.cantidad > 0 && daysTo(i.caducidad) >= 0).sort((a, b) => (a.caducidad || "9").localeCompare(b.caducidad || "9")); if (hits.length) { o.itemId = hits[0].id; $("#ins-sel").value = hits[0].id; toast("Encontrado: " + hits[0].nombre + " (lote que caduca primero)"); } else toast("Ese código no está en tu inventario"); };
+  const onCode = () => { const c = codeEl.value.trim(); if (!c) return; const hits = mine.filter(i => i.codigo === c && disponible(i) > 0 && daysTo(i.caducidad) >= 0).sort((a, b) => (a.caducidad || "9").localeCompare(b.caducidad || "9")); if (hits.length) { o.itemId = hits[0].id; $("#ins-sel").value = hits[0].id; toast("Encontrado: " + hits[0].nombre + " (lote que caduca primero)"); } else toast("Ese código no está en tu inventario"); };
   codeEl.addEventListener("change", onCode); codeEl.addEventListener("scanned", onCode);
   $("#ins-ok").onclick = () => {
     const q = Math.max(1, parseInt(o.cantidad, 10) || 1);
-    if (o.itemId) { const it = S.items[o.itemId]; if (q > +it.cantidad) return toast("Solo quedan " + it.cantidad + " en tu inventario"); const mv = consumeItem(s, o.itemId, q); s.insumos.push({ id: uid("n"), itemId: it.id, nombre: it.nombre, lote: it.lote || "", cantidad: q, moveId: mv.id, por: APP.user, t: iso() }); audit(s, "Usó " + q + " × " + it.nombre); }
+    if (o.itemId) { const it = S.items[o.itemId]; const dsp = disponible(it); if (q > dsp) return toast("Solo tienes " + dsp + " disponibles (el resto está apartado en servicios abiertos)"); s.insumos.push({ id: uid("n"), itemId: it.id, nombre: it.nombre, lote: it.lote || "", cantidad: q, por: APP.user, t: iso() }); audit(s, "Usó " + q + " × " + it.nombre + " (apartado; se descuenta al cumplir el servicio)"); }
     else if (o.libre.trim()) { s.insumos.push({ id: uid("n"), nombre: o.libre.trim(), cantidad: q, libre: true, por: APP.user, t: iso() }); audit(s, "Usó " + q + " × " + o.libre + " (fuera de inventario)"); }
     else return toast("Selecciona o escribe un insumo");
     Store.put("shifts", s); closeModal(); render();
@@ -931,7 +932,7 @@ function openInsumo(sid) {
 }
 document.addEventListener("click", e => {
   if (e.target.id === "add-ins") openInsumo(APP.r.sid);
-  const d = e.target.closest("[data-del-ins]"); if (d) { const s = S.shifts[APP.r.sid]; const x = s.insumos.find(i => i.id === d.dataset.delIns); if (x.itemId && S.items[x.itemId]) { const it = S.items[x.itemId]; it.cantidad = +it.cantidad + x.cantidad; Store.put("items", it); Store.put("moves", { id: uid("v"), itemId: it.id, nombre: it.nombre, owner: it.owner, tipo: "devolución", cantidad: x.cantidad, patientId: s.patientId, shiftId: s.id, por: APP.user, t: iso() }); } s.insumos = s.insumos.filter(i => i.id !== x.id); audit(s, "Quitó insumo " + x.nombre); Store.put("shifts", s); render(); }
+  const d = e.target.closest("[data-del-ins]"); if (d) { const s = S.shifts[APP.r.sid]; const x = s.insumos.find(i => i.id === d.dataset.delIns); if (x.moveId && x.itemId && S.items[x.itemId]) { const it = S.items[x.itemId]; it.cantidad = +it.cantidad + x.cantidad; Store.put("items", it); Store.put("moves", { id: uid("v"), itemId: it.id, nombre: it.nombre, owner: it.owner, tipo: "devolución", cantidad: x.cantidad, patientId: s.patientId, shiftId: s.id, por: APP.user, t: iso() }); } s.insumos = s.insumos.filter(i => i.id !== x.id); audit(s, "Quitó insumo " + x.nombre); Store.put("shifts", s); render(); }
 });
 function bombaHTML(s, k, ed) {
   const b = s.bomba || (s.bomba = { usada: false });
@@ -1120,7 +1121,7 @@ function bitacoraHTML(p) { const xs = (p.audit || []).slice().reverse(); return 
 const TIPOS = ["Insumo", "Medicamento", "Solución", "Equipo"];
 function itemStatus(i) { const d = daysTo(i.caducidad); if (+i.cantidad > 0 && d < 0) return ["bad", "Caducado"]; if (i.tipo !== "Equipo" && +i.cantidad <= 0) return ["bad", "Agotado"]; if (i.tipo !== "Equipo" && +i.cantidad <= +(i.minimo || 0)) return ["warn", "Bajo mínimo"]; if (d <= 30) return ["warn", "Caduca en " + d + " d"]; if (d <= 90) return ["acc", "Caduca en " + d + " d"]; return ["ok", "Disponible"]; }
 function itemRows(xs, showOwner, editable) {
-  return `<div class="tbl-wrap"><table><thead><tr><th>Producto</th>${showOwner ? "<th>Enfermera</th>" : ""}<th>Cantidad</th><th>Lote / caducidad</th><th>Estado</th>${editable ? "<th></th>" : ""}</tr></thead><tbody>${xs.map(i => { const [c, t] = itemStatus(i); return `<tr><td><b>${esc(i.nombre)}</b><div class="small muted">${esc(i.tipo)}${i.codigo ? " · " + esc(i.codigo) : ""}</div>${i.controlado === "Sí" ? `<span class="pill warn">Controlado</span> ` : ""}${i.redFria === "Sí" ? `<span class="pill acc">Red fría</span>` : ""}</td>${showOwner ? `<td>${esc(i.owner)}</td>` : ""}<td class="num"><b>${i.cantidad}</b> ${esc(i.unidad || "")}<div class="small muted">mín. ${i.minimo || 0}</div></td><td class="small num">${esc(i.lote || "—")}<div>${fmtD(i.caducidad)}</div></td><td><span class="pill ${c}">${esc(t)}</span></td>${editable ? `<td><button class="link small" data-edit-item="${i.id}">Editar</button></td>` : ""}</tr>`; }).join("")}</tbody></table></div>`;
+  return `<div class="tbl-wrap"><table><thead><tr><th>Producto</th>${showOwner ? "<th>Enfermera</th>" : ""}<th>Cantidad</th><th>Lote / caducidad</th><th>Estado</th>${editable ? "<th></th>" : ""}</tr></thead><tbody>${xs.map(i => { const [c, t] = itemStatus(i); return `<tr><td><b>${esc(i.nombre)}</b><div class="small muted">${esc(i.tipo)}${i.codigo ? " · " + esc(i.codigo) : ""}</div>${i.controlado === "Sí" ? `<span class="pill warn">Controlado</span> ` : ""}${i.redFria === "Sí" ? `<span class="pill acc">Red fría</span>` : ""}</td>${showOwner ? `<td>${esc(i.owner)}</td>` : ""}<td class="num"><b>${i.cantidad}</b> ${esc(i.unidad || "")}${reservado(i.id) ? `<div class="small" style="color:var(--accent)">${reservado(i.id)} apartado(s)</div>` : ""}<div class="small muted">mín. ${i.minimo || 0}</div></td><td class="small num">${esc(i.lote || "—")}<div>${fmtD(i.caducidad)}</div></td><td><span class="pill ${c}">${esc(t)}</span></td>${editable ? `<td><button class="link small" data-edit-item="${i.id}">Editar</button></td>` : ""}</tr>`; }).join("")}</tbody></table></div>`;
 }
 function myInvHTML() {
   const xs = itemsOf(APP.user).sort((a, b) => a.nombre.localeCompare(b.nombre));
@@ -1279,11 +1280,12 @@ const findCat = (clave, nombre, codigo) => { const xs = catalogo(); return (clav
 const catFromItem = it => it ? ({ Medicamento: "med", "Solución": "sol", Equipo: "ren" }[it.tipo] || (/elastom/i.test(it.nombre) ? "bom" : "ins")) : "ins";
 
 /* --- cotización calculada desde los turnos + ajustes de Administración --- */
-const cotDoc = pid => { const id = "cot_" + pid; return S.ventas[id] ? S.ventas[id] : { id, doc: "cot", pid, ajustes: {}, extras: [], cliente: {}, pago: { metodo: "Transferencia" }, tipo: "Cotización", notas: "", emitidas: [] }; };
-let admTab = "pac", admSel = { pid: "", desde: "", hasta: "" };
+const cotDoc = pid => { const sv = admSel.srv && S.config[admSel.srv]; const id = "cot_" + (sv && sv.pid === pid ? sv.id : pid); return S.ventas[id] ? S.ventas[id] : { id, doc: "cot", pid, ajustes: {}, extras: [], cliente: {}, pago: { metodo: "Transferencia" }, tipo: "Cotización", notas: "", emitidas: [] }; };
+let admTab = "pac", admSel = { pid: "", srv: "", desde: "", hasta: "" };
 function cotizacion(pid, desde, hasta) {
   const p = S.patients[pid]; if (!p) return null; const q = cotDoc(pid);
-  const sh = shiftsOf(pid).filter(s => (!desde || s.fecha >= desde) && (!hasta || s.fecha <= hasta)).reverse();
+  const srv = admSel.srv && S.config[admSel.srv] && S.config[admSel.srv].pid === pid ? S.config[admSel.srv] : null;
+  const sh = srv ? srvShifts(srv) : shiftsOf(pid).filter(s => (!desde || s.fecha >= desde) && (!hasta || s.fecha <= hasta)).reverse();
   const lines = [];
   const add = (key, concepto, cat, unidad, cant, c, fallback) => {
     if (!cant) return; let l = lines.find(x => x.key === key);
@@ -1298,12 +1300,13 @@ function cotizacion(pid, desde, hasta) {
       add("ins:" + (c ? c.id : norm(x.nombre)), x.nombre, cat, (it && it.unidad) || "pza", +x.cantidad, c, it && +it.precio ? { pu: Math.ceil(+it.precio * (1 + empresa().margen / 100)), iva: catOf(cat)[3] } : null); });
     if (s.bomba && s.bomba.usada) add("renta_bomba", "Renta de bomba de infusión eléctrica (por turno)", "ren", "turno", 1, findCat("renta_bomba", "Renta de bomba de infusión eléctrica (por turno)"));
   });
+  if (srv) (srv.planeado || []).forEach(pl => { const c = S.ventas[pl.catId]; const k = planKey(pl, c); if (lines.some(l => l.key === k)) return; if (sh.length && ["ins:", "svc:", "hora", "dist:", "renta_bomba"].some(x => k.startsWith(x))) return; lines.push({ key: k, concepto: c ? c.nombre : pl.concepto, cat: c ? c.cat : (pl.cat || "otr"), unidad: (c && c.unidad) || "servicio", cant: +pl.cant, pu: c ? precioCat(c) : 0, iva: c ? (c.iva || catOf(c.cat)[3]) : "16", plan: true, auto: true }); });
   lines.forEach(l => { const a = q.ajustes[l.key]; if (a) { if (a.pu !== "" && a.pu != null) { l.puAuto = l.pu; l.pu = +a.pu; l.ajustado = true; } if (a.cant !== "" && a.cant != null) { l.cantAuto = l.cant; l.cant = +a.cant; l.ajustado = true; } if (a.iva) l.iva = a.iva; if (a.quitar) l.quitar = true; } });
   (q.extras || []).forEach(x => lines.push({ key: "x:" + x.id, xid: x.id, concepto: x.concepto, cat: x.cat || "otr", unidad: x.unidad || "servicio", cant: +x.cant || 0, pu: +x.pu || 0, iva: x.iva || catOf(x.cat || "otr")[3], extra: true }));
   const act = lines.filter(l => !l.quitar && l.cant);
   const base = { "16": 0, "0": 0, ex: 0 }; act.forEach(l => base[l.iva] = r2((base[l.iva] || 0) + l.cant * l.pu));
   const sub = r2(base["16"] + base["0"] + base.ex), iva = r2(base["16"] * 0.16);
-  return { p, q, sh, lines, act, base, sub, iva, total: r2(sub + iva) };
+  return { p, q, sh, srv, lines, act, base, sub, iva, total: r2(sub + iva) };
 }
 const saveCot = q => { S.ventas[q.id] = q; saveSoon("ventas", q, 500); };
 
@@ -1328,10 +1331,11 @@ function admHTML() {
   if (!admSel.desde) { const d = new Date(); admSel.desde = ymd(new Date(d.getFullYear(), d.getMonth(), 1)); admSel.hasta = today(); }
   if (!admSel.pid && ps[0]) admSel.pid = ps[0].id;
   const nAl = invAlertas().total;
-  const tabs = `<div class="tabs" id="atabs">${[["pac", "Pacientes"], ["cot", "Cotizar"], ["cob", "Cobranza"], ["gas", "Gastos"], ["con", "Contabilidad del mes"], ["cat", "Catálogo y precios"], ["alr", "Alertas de insumos" + (nAl ? ` <span class="pill bad">${nAl}</span>` : "")], ["emp", "Empresa y pagos"]].map(([id, l]) => `<button data-atab="${id}" class="${admTab === id ? "on" : ""}">${l}</button>`).join("")}</div>`;
+  const tabs = `<div class="tabs" id="atabs">${[["pac", "Pacientes"], ["srv", "Servicios"], ["cot", "Cotizar"], ["cob", "Cobranza"], ["gas", "Gastos"], ["con", "Contabilidad del mes"], ["cat", "Catálogo y precios"], ["alr", "Alertas de insumos" + (nAl ? ` <span class="pill bad">${nAl}</span>` : "")], ["emp", "Empresa y pagos"]].map(([id, l]) => `<button data-atab="${id}" class="${admTab === id ? "on" : ""}">${l}</button>`).join("")}</div>`;
   let body = "";
   if (admTab === "cat") body = catalogoHTML();
   else if (admTab === "pac") body = pacientesAdmHTML();
+  else if (admTab === "srv") body = serviciosHTML();
   else if (admTab === "cob") body = cobranzaHTML();
   else if (admTab === "gas") body = gastosHTML();
   else if (admTab === "con") body = contabilidadHTML();
@@ -1347,12 +1351,16 @@ function cotHTML(ps) {
   const grupos = CATS.map(x => x[0]).filter(g => c.lines.some(l => l.cat === g));
   const kc = bnd(q, path => { saveCot(q); if (path === "tipo" || path === "pago.metodo") scheduleRender(); });
   const row = l => `<div class="cl ${l.quitar ? "off" : ""}">
-      <div class="cl-h"><span><b>${esc(l.concepto)}</b>${l.extra ? ` <span class="pill acc">agregado</span>` : ""}${l.sinCat && !l.extra ? ` <span class="pill warn">sin catálogo</span>` : ""}${l.ajustado ? ` <span class="pill acc">ajustado</span>` : ""}</span><b class="num">${money(l.cant * l.pu)}</b></div>
+      <div class="cl-h"><span><b>${esc(l.concepto)}</b>${l.extra ? ` <span class="pill acc">agregado</span>` : ""}${l.plan ? ` <span class="pill muted">de la cotización previa</span>` : ""}${l.sinCat && !l.extra ? ` <span class="pill warn">sin catálogo</span>` : ""}${l.ajustado ? ` <span class="pill acc">ajustado</span>` : ""}</span><b class="num">${money(l.cant * l.pu)}</b></div>
       <div class="cl-f"><label>Cant.<input class="cell" type="number" min="0" step="0.5" data-cl="${esc(l.key)}" data-f="cant" value="${l.cant}"></label>
         <label>Precio unit. sin IVA<input class="cell" type="number" min="0" step="0.01" data-cl="${esc(l.key)}" data-f="pu" value="${l.pu || ""}" placeholder="0.00"></label>
         <label>IVA<select class="cell" data-cl="${esc(l.key)}" data-f="iva">${IVAS.map(([v, t]) => `<option value="${v}" ${l.iva === v ? "selected" : ""}>${t}</option>`).join("")}</select></label>
         <span class="cl-a">${l.extra ? `<button class="link small" data-cdel="${l.xid}">quitar</button>` : `<button class="link small" data-cquit="${esc(l.key)}">${l.quitar ? "incluir" : "quitar"}</button>${l.ajustado ? ` · <button class="link small" data-creset="${esc(l.key)}">restablecer${l.puAuto != null ? " (" + money(l.puAuto) + ")" : ""}</button>` : ""}`}</span></div></div>`;
-  return `<div class="card fieldgrid">${F("Paciente", `<select id="adm-p">${ps.map(p => `<option value="${p.id}" ${p.id === admSel.pid ? "selected" : ""}>${esc(p.nombre)}</option>`).join("")}</select>`, "full")}${F("Desde", `<input type="date" id="adm-d" value="${admSel.desde}">`)}${F("Hasta", `<input type="date" id="adm-h" value="${admSel.hasta}">`)}</div>
+  const psv = Object.values(S.config).filter(x => x.doc === "servicio" && !x.cancelado && x.pid === admSel.pid).sort((a, b) => (b.inicio || "").localeCompare(a.inicio || ""));
+  return `<div class="card fieldgrid">${F("Paciente", `<select id="adm-p">${ps.map(p => `<option value="${p.id}" ${p.id === admSel.pid ? "selected" : ""}>${esc(p.nombre)}</option>`).join("")}</select>`, "full")}
+    ${F("Cotizar", `<select id="adm-srv"><option value="">Por periodo de fechas</option>${psv.map(s => `<option value="${s.id}" ${s.id === admSel.srv ? "selected" : ""}>Servicio ${esc(s.folio || "")} · ${fmtD(s.inicio)} · ${srvEstado(s)}</option>`).join("")}</select>`, "full")}
+    ${c.srv ? "" : F("Desde", `<input type="date" id="adm-d" value="${admSel.desde}">`) + F("Hasta", `<input type="date" id="adm-h" value="${admSel.hasta}">`)}</div>
+    ${c.srv ? `<div class="alert ${c.srv.estado === "Cumplido" ? "" : "warn"} small">${c.srv.estado === "Cumplido" ? `Servicio cumplido el ${fmtD(c.srv.cerradoEn)} · ${c.sh.length} atención(es)${c.srv.cotPrevia ? " · con cotización previa: los conceptos que no registra enfermería se toman de la cotización." : "."}` : `Servicio ${srvEstado(c.srv).toLowerCase()}: esta es la <b>cotización previa</b> con lo planeado. Asignada a ${esc(c.srv.enfermera)}. Los insumos se descuentan cuando marques servicio cumplido en la pestaña Servicios.`}</div>` : ""}
     <div class="kpis"><div class="kpi"><b>${c.sh.length}</b><span>Atenciones</span></div><div class="kpi ok"><b class="kmoney">${money(c.total)}</b><span>Total con IVA</span></div></div>
     ${sinPrecio ? `<div class="alert warn">${sinPrecio} concepto${sinPrecio > 1 ? "s" : ""} sin precio. Escríbelo aquí o captúralo en <button class="link" data-atab="cat">Catálogo y precios</button> para que se llene solo la próxima vez.</div>` : ""}
     ${sinCat && !sinPrecio ? `<div class="alert">${sinCat} concepto${sinCat > 1 ? "s" : ""} no está${sinCat > 1 ? "n" : ""} en el catálogo y se cotiza${sinCat > 1 ? "n" : ""} con el costo del inventario + ${e.margen} %.</div>` : ""}
@@ -1397,7 +1405,7 @@ document.addEventListener("click", e => {
   const rs = e.target.closest("[data-creset]"); if (rs) { const q = cotDoc(admSel.pid); delete q.ajustes[rs.dataset.creset]; saveCot(q); render(); }
   const dl = e.target.closest("[data-cdel]"); if (dl) { const q = cotDoc(admSel.pid); q.extras = q.extras.filter(x => x.id !== dl.dataset.cdel); saveCot(q); render(); }
 });
-document.addEventListener("change", e => { if (e.target.id === "adm-p") { admSel.pid = e.target.value; render(); } if (e.target.id === "adm-d") { admSel.desde = e.target.value; render(); } if (e.target.id === "adm-h") { admSel.hasta = e.target.value; render(); } });
+document.addEventListener("change", e => { if (e.target.id === "adm-p") { admSel.pid = e.target.value; admSel.srv = ""; render(); } if (e.target.id === "adm-srv") { admSel.srv = e.target.value; const s = S.config[admSel.srv]; if (s) { admSel.desde = s.inicio; admSel.hasta = s.fin || today(); } render(); } if (e.target.id === "adm-d") { admSel.desde = e.target.value; render(); } if (e.target.id === "adm-h") { admSel.hasta = e.target.value; render(); } });
 function openCotAdd() {
   const xs = catalogo().sort((a, b) => a.cat.localeCompare(b.cat) || a.nombre.localeCompare(b.nombre));
   const o = { catId: "", concepto: "", cat: "otr", cant: 1, pu: "", iva: "16", unidad: "servicio" }; const k = bnd(o);
@@ -1582,7 +1590,7 @@ function openCotDoc() {
   if (c.q.pago.metodo === "Liga de pago" && !c.q.pago.ligaUrl && !e.ligas.find(x => x.id === c.q.pago.ligaId)) return toast("Elige o pega la liga de pago");
   const folio = nextFolio(c.q.tipo); let blob; try { blob = cotPDFBlob(c, folio); } catch (er) { console.error(er); return toast("No se pudo generar el PDF: " + er.message); }
   const q = c.q; q.emitidas = (q.emitidas || []).concat([{ folio, tipo: q.tipo || "Cotización", total: c.total, t: iso(), por: APP.user, desde: admSel.desde, hasta: admSel.hasta }]); S.ventas[q.id] = q; Store.put("ventas", q);
-  const cl0 = q.cliente || {}; Store.put("ventas", { id: "venta_" + folio, doc: "venta", folio, tipo: q.tipo || "Cotización", pid: c.p.id, paciente: c.p.nombre, cliente: cl0.nombre || c.p.responsable || c.p.nombre, tel: cl0.tel || "", correo: cl0.correo || "", desde: admSel.desde, hasta: admSel.hasta, sub: c.sub, iva: c.iva, total: c.total, base: c.base, metodo: q.pago.metodo, lines: c.act.map(l => ({ concepto: l.concepto, cat: l.cat, unidad: l.unidad, cant: l.cant, pu: l.pu, iva: l.iva })), pagos: [], t: iso(), por: APP.user, estadoCot: q.tipo === "Nota de venta" ? "" : "Enviada" });
+  const cl0 = q.cliente || {}; Store.put("ventas", { id: "venta_" + folio, doc: "venta", folio, tipo: q.tipo || "Cotización", pid: c.p.id, srvId: c.srv ? c.srv.id : "", paciente: c.p.nombre, cliente: cl0.nombre || c.p.responsable || c.p.nombre, tel: cl0.tel || "", correo: cl0.correo || "", desde: admSel.desde, hasta: admSel.hasta, sub: c.sub, iva: c.iva, total: c.total, base: c.base, metodo: q.pago.metodo, lines: c.act.map(l => ({ concepto: l.concepto, cat: l.cat, unidad: l.unidad, cant: l.cant, pu: l.pu, iva: l.iva })), pagos: [], t: iso(), por: APP.user, estadoCot: q.tipo === "Nota de venta" ? "" : "Enviada" });
   const fname = `${(q.tipo || "Cotización").replace(/ /g, "_")}_${folio}_${c.p.nombre.replace(/[^\wÁÉÍÓÚÑáéíóúñ]+/g, "_")}.pdf`;
   const cl = q.cliente || {}; const tel = String(cl.tel || "").replace(/\D/g, "");
   const texto = `Alleviare · ${q.tipo || "Cotización"} ${folio}\nPaciente: ${c.p.nombre}\nTotal: ${money(c.total)} (IVA incluido)\nSe adjunta el documento en PDF.`;
@@ -1595,6 +1603,106 @@ function openCotDoc() {
   $("#cd-dl").onclick = () => saveFile(fname, blob);
   $("#cd-share").onclick = async () => { const file = new File([blob], fname, { type: "application/pdf" }); try { if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: fname, text: texto }); $("#cd-msg").textContent = "Enviado."; return; } } catch (er) { if (er && er.name === "AbortError") return; } $("#cd-msg").textContent = "Este navegador no permite enviar archivos directamente. Se descargó el PDF para adjuntarlo."; await saveFile(fname, blob); };
   render();
+}
+
+/* ============ SERVICIOS: con cotización previa o abiertos (urgencia / varios días) ============ */
+const srvs = () => Object.values(S.config || {}).filter(x => x.doc === "servicio" && !x.cancelado);
+const srvShifts = srv => (srv.estado === "Cumplido" ? (srv.shiftIds || []).map(id => S.shifts[id]) : Object.values(S.shifts).filter(s => s.servicioId === srv.id)).filter(Boolean).sort((a, b) => (a.fecha + a.creadoEn).localeCompare(b.fecha + b.creadoEn));
+const srvEstado = srv => srv.estado === "Cumplido" ? "Cumplido" : srvShifts(srv).length ? "En curso" : "Programado";
+const consumedIds = () => new Set(srvs().flatMap(s => s.consumidos || []));
+const billedShiftIds = () => new Set(srvs().filter(s => s.estado === "Cumplido").flatMap(s => s.shiftIds || []));
+function reservado(itemId) { const c = consumedIds(); let n = 0; Object.values(S.shifts).forEach(s => (s.insumos || []).forEach(x => { if (x.itemId === itemId && !x.moveId && !c.has(x.id)) n += +x.cantidad || 0; })); return n; }
+const disponible = it => Math.max(0, +it.cantidad - reservado(it.id));
+const srvOpenFor = pid => srvs().find(x => x.pid === pid && x.estado !== "Cumplido");
+const sueltos = pid => { const b = billedShiftIds(); const ids = new Set(srvs().map(x => x.id)); return Object.values(S.shifts).filter(s => s.patientId === pid && !b.has(s.id) && !(s.servicioId && ids.has(s.servicioId))).sort((a, b) => a.fecha.localeCompare(b.fecha)); };
+const planKey = (pl, c) => c ? (c.clave ? (c.clave.startsWith("svc:") ? "svc:" + c.nombre : c.clave) : ["med", "sol", "ins", "bom"].includes(c.cat) ? "ins:" + c.id : "cat:" + c.id) : "plan:" + norm(pl.concepto);
+let srvFiltro = "abiertos";
+
+function serviciosHTML() {
+  const all = srvs(); const pend = patients().filter(p => sueltos(p.id).length);
+  const xs = srvFiltro === "cumplidos" ? all.filter(s => s.estado === "Cumplido") : all.filter(s => s.estado !== "Cumplido");
+  const card = s => { const p = S.patients[s.pid] || { nombre: "—" }; const st = srvEstado(s); const sh = srvShifts(s); const ins = sh.flatMap(x => x.insumos || []);
+    return `<div class="cl"><div class="cl-h"><span><b>${esc(p.nombre)}</b> <span class="pill ${st === "Cumplido" ? "ok" : st === "En curso" ? "warn" : "acc"}">${st}</span>${s.cotPrevia ? ` <span class="pill muted">con cotización previa</span>` : ` <span class="pill muted">sin cotización previa</span>`}</span><span class="small muted" style="white-space:nowrap">${esc(s.folio || "")}</span></div>
+      <div class="small muted" style="margin-top:2px">Enfermera asignada: <b>${esc(s.enfermera || "—")}</b> · ${fmtD(s.inicio)}${s.fin ? " al " + fmtD(s.fin) : ""} · ${sh.length} atención(es) · ${ins.length} insumo(s) registrado(s)</div>
+      ${(s.planeado || []).length ? `<div class="small" style="margin-top:2px">Cotizado: ${s.planeado.map(x => x.cant + " × " + esc(x.concepto)).join(", ")}</div>` : ""}
+      <div class="row" style="margin-top:6px">${st !== "Cumplido" ? `<button class="btn sm" data-srv-close="${s.id}">Servicio cumplido: cerrar y ${s.cotPrevia ? "generar nota" : "generar cotización"}</button>` : `<button class="btn ghost sm" data-srv-cot="${s.id}">Ver cotización</button>`}${s.cotPrevia && st !== "Cumplido" ? `<button class="btn ghost sm" data-srv-cot="${s.id}">Cotización previa</button>` : ""}${st === "Programado" ? `<button class="link small" data-srv-cancel="${s.id}">Cancelar</button>` : ""}</div></div>`; };
+  return `<div class="stack">
+    <p class="small muted">Un servicio agrupa las atenciones de un paciente. Los insumos que registra la enfermera quedan <b>apartados</b> y se descuentan de su inventario solo cuando marcas <b>servicio cumplido</b>.</p>
+    <div class="row"><button class="btn" id="srv-new">+ Servicio con cotización previa</button></div>
+    ${pend.length ? `<div class="card stack"><div class="sec-t">Atenciones sin cotización previa (urgencias o servicios de varios días)</div>${pend.map(p => { const sh = sueltos(p.id); return `<div class="cl"><div class="cl-h"><span><b>${esc(p.nombre)}</b></span><span class="small muted">${sh.length} atención(es)</span></div><div class="small muted">${fmtD(sh[0].fecha)} al ${fmtD(sh[sh.length - 1].fecha)} · ${[...new Set(sh.map(s => s.enfermera))].map(esc).join(", ")} · ${sh.flatMap(s => s.insumos || []).length} insumo(s)</div><div class="row" style="margin-top:6px"><button class="btn sm" data-srv-closep="${p.id}">Cerrar servicio y generar cotización</button></div></div>`; }).join("")}</div>` : ""}
+    <div class="tabs">${[["abiertos", "Programados y en curso"], ["cumplidos", "Cumplidos"]].map(([id, l]) => `<button data-srvf="${id}" class="${srvFiltro === id ? "on" : ""}">${l}</button>`).join("")}</div>
+    ${xs.length ? `<div class="card stack" style="gap:0;padding:4px 16px">${xs.sort((a, b) => (b.inicio || "").localeCompare(a.inicio || "")).map(card).join("")}</div>` : `<div class="empty">${srvFiltro === "cumplidos" ? "Aún no hay servicios cumplidos." : "Sin servicios programados."}</div>`}
+  </div>`;
+}
+document.addEventListener("click", e => {
+  const f = e.target.closest("[data-srvf]"); if (f) { srvFiltro = f.dataset.srvf; render(); }
+  if (e.target.id === "srv-new") openSrvNew();
+  const c = e.target.closest("[data-srv-close]"); if (c) openSrvClose(c.dataset.srvClose);
+  const cp = e.target.closest("[data-srv-closep]"); if (cp) openSrvClose(null, cp.dataset.srvClosep);
+  const v = e.target.closest("[data-srv-cot]"); if (v) { const s = S.config[v.dataset.srvCot]; admSel = { pid: s.pid, srv: s.id, desde: s.inicio, hasta: s.fin || today() }; admTab = "cot"; render(); window.scrollTo(0, 0); }
+  const x = e.target.closest("[data-srv-cancel]"); if (x) { const s = S.config[x.dataset.srvCancel]; askReason("Cancelar servicio", "Motivo (queda registrado)", r => { s.cancelado = true; s.canceladoMotivo = r; s.canceladoPor = APP.user; Store.put("config", s); render(); }); }
+});
+function openSrvNew() {
+  const ps = patients().filter(p => p.estado === "activo").sort((a, b) => a.nombre.localeCompare(b.nombre)); const ns = nurses().filter(n => n.activa !== false && (n.tipo || "enfermeria") === "enfermeria").map(n => n.nombre).sort();
+  if (!ps.length) return toast("Primero registra al paciente en Enfermería");
+  const o = { pid: admSel.pid || ps[0].id, enfermera: "", inicio: today(), fin: "", notas: "", planeado: [] }; const k = bnd(o);
+  const xs = catalogo().sort((a, b) => a.cat.localeCompare(b.cat) || a.nombre.localeCompare(b.nombre));
+  const draw = () => { $("#sn-list").innerHTML = o.planeado.length ? o.planeado.map((x, i) => `<div class="it small"><span>${x.cant} × ${esc(x.concepto)}</span><button class="link" data-sn-del="${i}">quitar</button></div>`).join("") : `<div class="small muted">Agrega lo que incluye la cotización: servicios, horas, insumos, medicamentos, médico, terapia…</div>`; document.querySelectorAll("[data-sn-del]").forEach(b => b.onclick = () => { o.planeado.splice(+b.dataset.snDel, 1); draw(); }); };
+  modal(`<h2>Servicio con cotización previa</h2>
+    <div class="fieldgrid">${F("Paciente", SEL(k, o, "pid", ps.map(p => [p.id, p.nombre])), "full")}${F("Enfermera que realizará el servicio", SEL(k, o, "enfermera", ns), "full")}${F("Inicio", I(k, o, "inicio", 'type="date"'))}${F("Fin estimado", I(k, o, "fin", 'type="date"'))}</div>
+    <div class="sec-t">Conceptos cotizados</div><div class="list card" id="sn-list"></div>
+    <div class="row" style="align-items:flex-end"><div style="flex:1;min-width:0">${F("Del catálogo", `<select id="sn-cat"><option value="">Elegir…</option>${CATS.map(cg => { const ys = xs.filter(x => x.cat === cg[0]); return ys.length ? `<optgroup label="${esc(cg[1])}">${ys.map(x => `<option value="${x.id}">${esc(x.nombre)}</option>`).join("")}</optgroup>` : ""; }).join("")}</select>`)}</div><div style="width:80px">${F("Cant.", `<input id="sn-q" type="number" min="0.5" step="0.5" value="1">`)}</div><button class="btn ghost sm" id="sn-add" style="margin-bottom:4px">Agregar</button></div>
+    ${F("Notas", TA(k, o, "notas", 'rows="2" placeholder="Ej. 5 días de turno de 12 h con bomba de infusión"'))}
+    <div class="row"><button class="btn" id="sn-ok">Guardar y armar cotización</button><button class="btn quiet" data-close>Cancelar</button></div>`);
+  draw();
+  $("#sn-add").onclick = () => { const c = S.ventas[$("#sn-cat").value]; const q = +$("#sn-q").value; if (!c) return toast("Elige un concepto"); if (!(q > 0)) return toast("Cantidad"); const ex = o.planeado.find(x => x.catId === c.id); if (ex) ex.cant = r2(ex.cant + q); else o.planeado.push({ catId: c.id, concepto: c.nombre, cat: c.cat, cant: q }); $("#sn-cat").value = ""; $("#sn-q").value = 1; draw(); };
+  $("#sn-ok").onclick = () => { if (!o.enfermera) return toast("Elige a la enfermera que hará el servicio"); if (!o.planeado.length) return toast("Agrega al menos un concepto"); if (srvOpenFor(o.pid)) return toast("Ese paciente ya tiene un servicio abierto. Ciérralo o cancélalo primero.");
+    const s = Object.assign({ id: "srv_" + uid("s").slice(-10), doc: "servicio", cotPrevia: true, estado: "Programado", folio: "SRV-" + today().slice(2).replace(/-/g, "") + "-" + String(srvs().length + 1).padStart(3, "0"), creadoEn: iso(), creadoPor: APP.user }, o);
+    Store.put("config", s); closeModal(); admSel = { pid: s.pid, srv: s.id, desde: s.inicio, hasta: s.fin || s.inicio }; const q = cotDoc(s.pid); q.tipo = "Cotización"; saveCot(q); admTab = "cot"; render(); toast("Servicio programado. Revisa los precios y genera la cotización."); };
+}
+function cotejo(s, sh) {
+  if (!(s && (s.planeado || []).length)) return "";
+  const real = {}; sh.forEach(x => { const sv = x.servicio || {}; (sv.servicios || []).forEach(n => real["svc:" + n] = (real["svc:" + n] || 0) + 1); const h = horasDe(sv); if (h) real.hora = (real.hora || 0) + h; if (sv.distancia) real["dist:" + sv.distancia] = (real["dist:" + sv.distancia] || 0) + 1; if (x.bomba && x.bomba.usada) real.renta_bomba = (real.renta_bomba || 0) + 1; (x.insumos || []).forEach(i => { const it = i.itemId && S.items[i.itemId]; const c = findCat("", i.nombre, it && it.codigo); const k = c ? "ins:" + c.id : "ins:" + norm(i.nombre); real[k] = (real[k] || 0) + +i.cantidad; real["n:" + k] = i.nombre; }); });
+  const rows = []; const seen = new Set();
+  s.planeado.forEach(pl => { const c = S.ventas[pl.catId]; const k = planKey(pl, c); seen.add(k); const r = real[k] || 0; rows.push([pl.concepto, pl.cant, r, ["ins:", "svc:", "hora", "dist:", "renta_bomba"].some(p => k.startsWith(p)) ? (r === pl.cant ? "ok" : r > pl.cant ? "warn" : "bad") : "acc"]); });
+  Object.keys(real).filter(k => !k.startsWith("n:") && !seen.has(k)).forEach(k => rows.push([real["n:" + k] || k.replace(/^svc:/, "").replace(/^dist:/, "Trayecto ").replace("hora", "Horas de cuidado").replace("renta_bomba", "Renta de bomba"), 0, real[k], "warn"]));
+  const enf = [...new Set(sh.map(x => x.enfermera))];
+  return `<div class="sec-t">Cotejo: cotización previa contra lo registrado</div>
+    ${enf.length && s.enfermera && enf.some(n => norm(n) !== norm(s.enfermera)) ? `<div class="alert warn small">Enfermera asignada: ${esc(s.enfermera)} · atendió: ${enf.map(esc).join(", ")}</div>` : ""}
+    <div class="list card">${rows.map(([n, a, b, c]) => `<div class="it small"><span>${esc(n)}</span><span class="num">cotizado <b>${a}</b> · real <b>${c === "acc" ? "—" : b}</b> <span class="pill ${c}">${c === "ok" ? "coincide" : c === "acc" ? "no lo registra enfermería" : b > a ? "de más" : "de menos"}</span></span></div>`).join("")}</div>`;
+}
+function openSrvClose(id, pid) {
+  const s = id ? S.config[id] : null; pid = pid || s.pid; const p = S.patients[pid];
+  const linked = s ? srvShifts(s) : []; const extra = sueltos(pid); const sel = new Set(linked.concat(extra).map(x => x.id));
+  const all = linked.concat(extra).sort((a, b) => a.fecha.localeCompare(b.fecha));
+  const abiertos = all.filter(x => !x.cerrado);
+  const insOf = shs => { const c = consumedIds(); return shs.flatMap(x => (x.insumos || []).filter(i => i.itemId && !i.moveId && !c.has(i.id)).map(i => Object.assign({ sid: x.id, pid: x.patientId }, i))); };
+  modal(`<h2>Servicio cumplido · ${esc(p.nombre)}</h2>
+    <p class="small muted">${s && s.cotPrevia ? "Se compara con la cotización previa y se arma la nota de venta." : "Se arma la cotización con todo lo registrado en estas atenciones."} Al confirmar, los insumos apartados se descuentan del inventario de cada enfermera.</p>
+    <div class="sec-t">Atenciones incluidas</div>
+    <div class="list card">${all.length ? all.map(x => `<label class="it small" style="cursor:pointer"><span><input type="checkbox" data-sc="${x.id}" ${sel.has(x.id) ? "checked" : ""}> ${fmtD(x.fecha)} · ${esc(x.turno || "")} · ${esc(x.enfermera)}</span><span class="muted">${(x.insumos || []).length} insumo(s)${x.cerrado ? "" : ` · <b style="color:#B3261E">turno sin cerrar</b>`}</span></label>`).join("") : `<div class="small muted">Aún no hay atenciones registradas.</div>`}</div>
+    ${abiertos.length ? `<div class="alert warn small">${abiertos.length} turno(s) siguen abiertos: la enfermera aún puede agregar insumos. Lo ideal es cerrar el servicio cuando terminen.</div>` : ""}
+    <div id="sc-cot">${cotejo(s, all)}</div>
+    <div class="sec-t">Se descontará del inventario</div><div class="list card" id="sc-ins"></div>
+    <div class="row"><button class="btn" id="sc-ok">Confirmar servicio cumplido</button><button class="btn quiet" data-close>Cancelar</button></div>`);
+  const chosen = () => all.filter(x => document.querySelector(`[data-sc="${x.id}"]`).checked);
+  const drawIns = () => { const ins = insOf(chosen()); const agg = {}; ins.forEach(i => { const k = i.itemId; agg[k] = agg[k] || { n: i.nombre, q: 0, it: S.items[k] }; agg[k].q += +i.cantidad; }); $("#sc-ins").innerHTML = Object.values(agg).length ? Object.values(agg).map(a => `<div class="it small"><span>${a.q} × ${esc(a.n)} <span class="muted">(${esc(a.it ? a.it.owner : "")})</span></span>${a.it && +a.it.cantidad < a.q ? `<span class="pill bad">solo hay ${a.it.cantidad}</span>` : ""}</div>`).join("") : `<div class="small muted">Nada por descontar.</div>`; $("#sc-cot").innerHTML = cotejo(s, chosen()); };
+  document.querySelectorAll("[data-sc]").forEach(c => c.onchange = drawIns); drawIns();
+  $("#sc-ok").onclick = () => {
+    const shs = chosen(); if (!shs.length && !(s && s.cotPrevia)) return toast("Selecciona al menos una atención");
+    const ins = insOf(shs); const now = iso();
+    ins.forEach(i => { const it = S.items[i.itemId]; if (!it) return; it.cantidad = Math.max(0, +it.cantidad - +i.cantidad); Store.put("items", it); Store.put("moves", { id: uid("v"), itemId: it.id, nombre: it.nombre, owner: it.owner, tipo: "consumo", cantidad: -i.cantidad, patientId: i.pid, shiftId: i.sid, por: APP.user, t: now }); });
+    const fechas = shs.map(x => x.fecha).sort();
+    const srv = Object.assign(s || { id: "srv_" + uid("s").slice(-10), doc: "servicio", pid, cotPrevia: false, enfermera: [...new Set(shs.map(x => x.enfermera))].join(", "), inicio: fechas[0] || today(), folio: "SRV-" + today().slice(2).replace(/-/g, "") + "-" + String(srvs().length + 1).padStart(3, "0"), creadoEn: now, creadoPor: APP.user }, { estado: "Cumplido", shiftIds: shs.map(x => x.id), fin: fechas[fechas.length - 1] || (s && s.fin) || today(), consumidos: ((s && s.consumidos) || []).concat(ins.map(i => i.id)), cerradoEn: now, cerradoPor: APP.user });
+    Store.put("config", srv); closeModal();
+    admSel = { pid, srv: srv.id, desde: srv.inicio, hasta: srv.fin }; const q = cotDoc(pid); q.tipo = srv.cotPrevia ? "Nota de venta" : "Cotización"; saveCot(q); admTab = "cot"; render(); window.scrollTo(0, 0);
+    toast("Servicio cumplido. " + (ins.length ? "Inventario actualizado. " : "") + "Revisa y genera el " + (srv.cotPrevia ? "documento." : "PDF."));
+  };
+}
+/* enfermería: servicios asignados */
+function misServiciosHTML() {
+  const xs = srvs().filter(s => s.estado !== "Cumplido" && norm(s.enfermera) === norm(APP.user)); if (!xs.length) return "";
+  return `<div class="stack"><div class="sec-t">Servicios asignados a mí</div>${xs.map(s => { const p = S.patients[s.pid]; return p ? `<div class="card stack lvl lvl-${p.nivel}"><div class="row between"><div><b>${esc(p.nombre)}</b><div class="small muted">${fmtD(s.inicio)}${s.fin ? " al " + fmtD(s.fin) : ""} · ${srvEstado(s)}</div></div><button class="btn sm" data-go="${goA({ p: "patient", pid: p.id })}">Abrir</button></div>${(s.planeado || []).length ? `<div class="small">Incluye: ${s.planeado.map(x => x.cant + " × " + esc(x.concepto)).join(", ")}</div>` : ""}${s.notas ? `<div class="small muted">${esc(s.notas)}</div>` : ""}</div>` : ""; }).join("")}</div>`;
 }
 
 /* ============ ADMINISTRACIÓN: cobranza, pacientes, gastos y contabilidad mensual ============ */
@@ -1651,13 +1759,13 @@ function pacientesAdmHTML() {
   const rows = patients().sort((a, b) => a.nombre.localeCompare(b.nombre)).map(p => { const sh = shiftsOf(p.id); const pv = vs.filter(v => v.pid === p.id); const cxc = pv.filter(esCxC);
     const vendido = r2(cxc.reduce((a, v) => a + v.total, 0)), cobrado = r2(cxc.reduce((a, v) => a + pagadoDe(v), 0));
     const ult = sh[0]; const ultDoc = pv.sort((a, b) => b.t.localeCompare(a.t))[0];
-    const sinCot = sh.filter(s => !pv.some(v => (!v.desde || s.fecha >= v.desde) && (!v.hasta || s.fecha <= v.hasta))).length;
+    const sinCot = sueltos(p.id).filter(s => !pv.some(v => !v.srvId && (!v.desde || s.fecha >= v.desde) && (!v.hasta || s.fecha <= v.hasta))).length;
     return { p, sh, mesN: sh.filter(s => mesDe(s.fecha) === mes).length, vendido, cobrado, saldo: r2(vendido - cobrado), ult, ultDoc, sinCot }; });
   return `<div class="stack">
     <div class="kpis"><div class="kpi"><b>${rows.filter(r => r.p.estado === "activo").length}</b><span>Pacientes activos</span></div><div class="kpi ${rows.some(r => r.saldo > 0) ? "warn" : "ok"}"><b>${rows.filter(r => r.saldo > 0).length}</b><span>Con saldo pendiente</span></div><div class="kpi ${rows.some(r => r.sinCot) ? "warn" : "ok"}"><b>${rows.filter(r => r.sinCot).length}</b><span>Con atenciones sin cotizar</span></div></div>
     ${rows.length ? `<div class="card stack" style="gap:0;padding:4px 16px">${rows.map(r => `<div class="cl"><div class="cl-h"><span><b>${esc(r.p.nombre)}</b> <span class="pill ${r.p.estado === "activo" ? "ok" : "muted"}">${esc(r.p.estado || "")}</span></span><b class="num">${r.saldo > 0 ? `<span style="color:var(--bad,#B3261E)">Saldo ${money(r.saldo)}</span>` : r.vendido ? "Al corriente" : ""}</b></div>
       <div class="small muted" style="margin-top:2px">${r.mesN} atenciones este mes · última ${r.ult ? fmtD(r.ult.fecha) + " (" + esc(r.ult.enfermera) + ")" : "—"} · vendido ${money(r.vendido)} · cobrado ${money(r.cobrado)}${r.ultDoc ? " · último documento " + esc(r.ultDoc.folio) : ""}</div>
-      <div class="row" style="margin-top:6px">${r.sinCot ? `<span class="pill warn">${r.sinCot} atención(es) sin cotizar</span>` : ""}<button class="btn ghost sm" data-adm-cot="${r.p.id}">Cotizar</button></div></div>`).join("")}</div>` : emptyDemo()}
+      <div class="row" style="margin-top:6px">${r.sinCot ? `<span class="pill warn">${r.sinCot} atención(es) sin cerrar ni cotizar</span><button class="btn sm" data-srv-closep="${r.p.id}">Cerrar servicio</button>` : ""}<button class="btn ghost sm" data-adm-cot="${r.p.id}">Cotizar</button></div></div>`).join("")}</div>` : emptyDemo()}
   </div>`;
 }
 document.addEventListener("click", e => { const b = e.target.closest("[data-adm-cot]"); if (b) { admSel.pid = b.dataset.admCot; admTab = "cot"; render(); window.scrollTo(0, 0); } });
