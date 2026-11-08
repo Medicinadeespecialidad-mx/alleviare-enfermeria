@@ -2027,7 +2027,7 @@ function defuncionesHTML() {
     ${sinForm.length ? `<div class="card stack"><div class="sec-t">Marcados como defunción en enfermería, sin formulario</div>${sinForm.map(p => `<div class="it small"><span>${esc(p.nombre)}</span><span><button class="link" data-def-send="${p.id}">Enviar formulario</button> · <button class="link" data-def-add="${p.id}">Registrar</button></span></div>`).join("")}</div>` : ""}
     ${rows.length ? `<div class="card stack" style="gap:0;padding:4px 16px">${rows.map(d => `<div class="cl"><div class="cl-h"><span><b>${esc(d.nombre)}</b>${d.origen === "familia" ? ` <span class="pill acc">datos de la familia</span>` : ""}</span><span class="pill ${d.cobrado === "Sí" ? "ok" : "warn"}">${d.cobrado === "Sí" ? "Certificado cobrado" : "Sin cobrar"}</span></div>
       <div class="small muted" style="margin-top:2px">Falleció ${d.fecha ? fmtD(d.fecha) : "—"}${d.hora ? " a las " + esc(d.hora) : ""} · Certificado: ${medTxt(d) ? "<b>" + esc(medTxt(d)) + "</b>" : "médico sin asignar"}${d.folioCert ? " · folio " + esc(d.folioCert) : ""}${d.cobrado === "Sí" ? " · " + money(d.monto) + (d.fechaPago ? " el " + fmtD(d.fechaPago) : "") : ""}</div>
-      <div class="row" style="margin-top:6px"><button class="btn sm" data-def-ed="${d.id}">Médico y cobro</button>${d.form ? `<button class="btn ghost sm" data-def-ver="${d.id}">Ver datos del certificado</button>` : ""}</div></div>`).join("")}</div>` : `<div class="empty">Sin defunciones registradas. Envía el formulario a la familia o regístrala aquí.</div>`}
+      <div class="row" style="margin-top:6px"><button class="btn sm" data-def-ed="${d.id}">Médico y cobro</button>${d.form ? `<button class="btn ghost sm" data-def-ver="${d.id}">Ver datos del certificado</button>` : ""}${borrBtn("ventas", d.id)}</div></div>`).join("")}</div>` : `<div class="empty">Sin defunciones registradas. Envía el formulario a la familia o regístrala aquí.</div>`}
   </div>`;
 }
 document.addEventListener("click", e => {
@@ -2070,6 +2070,7 @@ function borrBtn(c, id, label) {
 }
 function borrResumen(c, id) {
   const x = S[c][id]; if (!x) return id;
+  if (x.doc === "defuncion" || /^def_/.test(id)) return "Defunción de " + (x.nombre || "—") + (x.fecha ? " (" + fmtD(x.fecha) + ")" : "");
   if (c === "patients") return "Paciente " + x.nombre + (x.fechaNac ? " (nac. " + fmtD(x.fechaNac) + ")" : "");
   return (x.tipo || "Documento") + " " + (x.folio || id) + " · " + (x.paciente || "") + " · " + money(x.total || 0);
 }
@@ -2119,7 +2120,7 @@ function loadBorrados() {
 function borradosHTML() {
   if (!borrList) { loadBorrados(); return `<div class="card small muted">Cargando solicitudes de borrado…</div>`; }
   const pend = borrList.filter(b => b.estado === "pendiente"), hech = borrList.filter(b => b.estado !== "pendiente").slice(0, 6);
-  const tipo = b => b.col === "patients" ? "Paciente" : "Cotización / nota de venta";
+  const tipo = b => b.col === "patients" ? "Paciente" : /^def_/.test(b.docId) ? "Defunción" : "Cotización / nota de venta";
   return `<div class="card stack">
     <div class="row between"><h3>Solicitudes de borrado</h3>${pend.length ? `<span class="pill bad">${pend.length} pendiente(s)</span>` : `<span class="pill ok">Sin pendientes</span>`}</div>
     ${pend.length ? pend.map(b => `<div class="cl"><div class="cl-h"><span><b>${esc(b.resumen || b.docId)}</b></span><span class="pill">${tipo(b)}</span></div>

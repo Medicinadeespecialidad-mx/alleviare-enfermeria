@@ -220,7 +220,7 @@ declare me public.staff;
 begin
   me := public._me(p_token);
   if not ((p_col = 'items' and (public._can(me,'inventario') or public._can(me,'enfermeria') or public._can(me,'administracion')))
-       or (p_col = 'ventas' and public._can(me,'administracion'))) then raise exception 'sin_permiso'; end if;
+       or (p_col = 'ventas' and public._can(me,'administracion') and (me.es_direccion or not (p_id like 'venta\_%' or p_id like 'def\_%')))) then raise exception 'sin_permiso'; end if;
   update public.docs set deleted = true, updated_at = clock_timestamp(), updated_by = me.nombre where col = p_col and id = p_id;
   insert into public.bitacora (staff, accion, col, doc_id) values (me.nombre, 'borrar', p_col, p_id);
 end $$;
@@ -321,7 +321,7 @@ begin
   if p_col = 'patients' then
     if not (public._can(me,'enfermeria') or public._can(me,'coordinacion') or public._can(me,'administracion')) then raise exception 'sin_permiso'; end if;
   elsif p_col = 'ventas' then
-    if not public._can(me,'administracion') or p_id not like 'venta\_%' then raise exception 'sin_permiso'; end if;
+    if not public._can(me,'administracion') or not (p_id like 'venta\_%' or p_id like 'def\_%') then raise exception 'sin_permiso'; end if;
   else raise exception 'sin_permiso'; end if;
   if length(trim(coalesce(p_motivo,''))) < 4 then raise exception 'motivo_requerido'; end if;
   if not exists (select 1 from public.docs where col = p_col and id = p_id and not deleted) then raise exception 'no_encontrado'; end if;
