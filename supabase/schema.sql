@@ -280,6 +280,22 @@ begin
   insert into public.bitacora (staff, accion, col, doc_id) values (trim(p_nombre), 'firmó aviso de privacidad por enlace', 'patients', l.pid);
 end $$;
 
+-- ---------- Certificado de defunción: formulario público para la familia ----------
+-- Se guarda en la colección de Administración (solo Administración y Dirección la leen).
+create or replace function public.api_defuncion_enviar(p_data jsonb)
+returns text language plpgsql security definer set search_path = public, extensions as $$
+declare i text := 'def_' || replace(gen_random_uuid()::text, '-', '');
+begin
+  if p_data is null or jsonb_typeof(p_data) <> 'object' or length(p_data::text) > 20000 then raise exception 'datos_invalidos'; end if;
+  if length(trim(coalesce(p_data->>'nombre',''))) < 5 then raise exception 'nombre_invalido'; end if;
+  if (select count(*) from public.docs where col = 'ventas' and id like 'def\_%' and updated_at > now() - interval '10 minutes') > 20 then raise exception 'demasiados_envios'; end if;
+  insert into public.docs (col, id, data, updated_at, updated_by)
+  values ('ventas', i, jsonb_build_object('id', i, 'doc', 'defuncion', 'origen', 'familia', 'recibido', clock_timestamp(), 'form', p_data,
+    'nombre', trim(p_data->>'nombre'), 'fecha', p_data->>'fecha', 'hora', p_data->>'hora', 'cobrado', 'No'), clock_timestamp(), 'Familia (formulario)');
+  insert into public.bitacora (staff, accion, col, doc_id) values ('Familia (formulario)', 'datos de certificado de defunción', 'ventas', i);
+  return i;
+end $$;
+
 -- ---------- Dirección: personal y permisos ----------
 create or replace function public.api_staff_all(p_token uuid)
 returns json language plpgsql security definer set search_path = public, extensions as $$
@@ -333,4 +349,4 @@ grant execute on function public.api_staff_list(), public.api_register(text,text
   public.api_dir_login(text,text), public.api_dir_password(uuid,text,text), public.api_logout(uuid), public.api_pull(uuid,timestamptz),
   public.api_put(uuid,text,text,jsonb), public.api_delete(uuid,text,text), public.api_staff_all(uuid),
   public.api_staff_update(uuid,uuid,boolean,boolean,text[]), public.api_staff_delete(uuid,uuid), public.api_aviso_link(uuid,text), public.api_aviso_get(uuid),
-  public.api_aviso_firmar(uuid,text,text,text,boolean,text) to anon, authenticated;
+  public.api_aviso_firmar(uuid,text,text,text,boolean,text), public.api_defuncion_enviar(jsonb) to anon, authenticated;

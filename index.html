@@ -670,6 +670,7 @@ function patientHTML(pid, coord) {
       <div class="small muted">${age(p.fechaNac)} años · ${esc(p.sexo || "—")} · Nac. ${fmtD(p.fechaNac)} · Registro ${fmtD(p.fechaRegistro)} (${esc(p.tipoAtencion)})</div>
       <div class="small"><b>Dx:</b> ${esc(p.diagnostico || "—")} · <b>Alergias:</b> ${esc(p.alergias || "Negadas")} · <b>Médico:</b> ${esc(p.medicoTratante === "Otro" ? p.medicoOtro : p.medicoTratante)}</div>
       ${pend.length ? `<div class="row">${pend.map(([c, t]) => `<span class="pill ${c}">${esc(t)}</span>`).join("")}</div>` : ""}
+      ${p.estado === "defunción" || p.nivel === "finvida" ? `<div class="row"><button class="btn ghost sm" data-def-form="${p.id}">Formulario de certificado de defunción para la familia</button></div>` : ""}
       <div class="row">${p.aviso ? `<button class="btn quiet sm" data-aviso="${p.id}">Aviso de privacidad firmado ✓</button>` : `<span class="pill warn">Aviso de privacidad sin firmar</span><button class="btn ghost sm" data-aviso="${p.id}">Firmar en pantalla</button>${Store.mode === "sb" ? `<button class="btn ghost sm" data-aviso-link="${p.id}">Enviar enlace al familiar</button>` : ""}`}</div>
       ${!coord && p.estado === "activo" ? `<div class="row">${open ? `<button class="btn" data-go="${goA({ p: "shift", sid: open.id })}">Continuar mi turno de hoy</button>` : `<button class="btn" id="start-shift" data-pid="${p.id}">Iniciar turno</button>`}</div>` : ""}
     </div>
@@ -1331,11 +1332,12 @@ function admHTML() {
   if (!admSel.desde) { const d = new Date(); admSel.desde = ymd(new Date(d.getFullYear(), d.getMonth(), 1)); admSel.hasta = today(); }
   if (!admSel.pid && ps[0]) admSel.pid = ps[0].id;
   const nAl = invAlertas().total;
-  const tabs = `<div class="tabs" id="atabs">${[["pac", "Pacientes"], ["srv", "Servicios"], ["cot", "Cotizar"], ["cob", "Cobranza"], ["gas", "Gastos"], ["con", "Contabilidad del mes"], ["cat", "Catálogo y precios"], ["alr", "Alertas de insumos" + (nAl ? ` <span class="pill bad">${nAl}</span>` : "")], ["emp", "Empresa y pagos"]].map(([id, l]) => `<button data-atab="${id}" class="${admTab === id ? "on" : ""}">${l}</button>`).join("")}</div>`;
+  const tabs = `<div class="tabs" id="atabs">${[["pac", "Pacientes"], ["srv", "Servicios"], ["cot", "Cotizar"], ["cob", "Cobranza"], ["gas", "Gastos"], ["con", "Contabilidad del mes"], ["def", "Defunciones"], ["cat", "Catálogo y precios"], ["alr", "Alertas de insumos" + (nAl ? ` <span class="pill bad">${nAl}</span>` : "")], ["emp", "Empresa y pagos"]].map(([id, l]) => `<button data-atab="${id}" class="${admTab === id ? "on" : ""}">${l}</button>`).join("")}</div>`;
   let body = "";
   if (admTab === "cat") body = catalogoHTML();
   else if (admTab === "pac") body = pacientesAdmHTML();
   else if (admTab === "srv") body = serviciosHTML();
+  else if (admTab === "def") body = defuncionesHTML();
   else if (admTab === "cob") body = cobranzaHTML();
   else if (admTab === "gas") body = gastosHTML();
   else if (admTab === "con") body = contabilidadHTML();
@@ -1967,6 +1969,64 @@ async function firmaPublica() {
       m.innerHTML = `<div class="stack gate"><div class="hero-logo"><img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjE1NDguMiA1OC40IDU3MC42IDU1Ni4zIj48c3R5bGUgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4uY2xzLTF7ZmlsbDojZjVlNGQ3O30uY2xzLTIsLmNscy00e29wYWNpdHk6MC42Mjt9LmNscy0zLC5jbHMtNHtmaWxsOiNlYmFkY2Y7fS5jbHMtNXtmaWxsOiM5YTlmZDA7fS5jbHMtNntmaWxsOiNiM2I4Y2U7fTwvc3R5bGU+PHBhdGggeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiBjbGFzcz0iY2xzLTEiIGQ9Ik0yMTM0LjM5LDQ0OC4wOWExOTYuNiwxOTYuNiwwLDAsMC01LjU4LTMxLjM5Yy00LjE4LTE1LjY3LTEwLjYzLTMwLjc4LTIwLjI4LTQzLjQ4LTEwLjY4LTE0LjA1LTI0LTIyLjcyLTQxLjM5LTI1LjU1YTM1LjQxLDM1LjQxLDAsMCwxLDUuMyw2Ljc2YzguNzcsMTQuNjEsNy41NywzMy40MywxLjM3LDQ4LjM4LTEyLDI4LjkxLTM5LDQ3LjQ2LTU1LjkxLDczLjA4LTE0LjM5LDIxLjg0LTIwLjU3LDQ4LjMtMTYuNTUsNzMuOTNhMjE0LjYzLDIxNC42MywwLDAsMCw0NC4xNCw1OC44MiwxOC4xMSwxOC4xMSwwLDAsMSw5LTMuMjksODcuMTMsODcuMTMsMCwwLDEsLjI0LTU3LjE3LDE3LjEyLDE3LjEyLDAsMCwxLTQuMTEtMTguNjNjMS44NS00LjM1LDUuNDQtNy42Nyw4LjQ3LTExLjMxczUuNjgtOC4xNCw1LTEyLjgzYzYuMzMsNi40MiwxMS43NSwxNS44OSw5LjgsMjQuNjhhMjgsMjgsMCwwLDEtMTQuNjksMTguNDUsODIuNTUsODIuNTUsMCwwLDAsMCw1NywxOC4yLDE4LjIsMCwwLDEsMTAuMjEsNS41M2MxMS42OC0xMS4xMSwyNy43NC0yOS41OCwyOS43My0zMi4zNkMyMTI2LDU0MS4yNSwyMTM4LjksNDk0LDIxMzQuMzksNDQ4LjA5WiIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoLTIxOS44MyAtMjYzLjM5KSIvPjxnIGNsYXNzPSJjbHMtMiI+PHBhdGggeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiBjbGFzcz0iY2xzLTMiIGQ9Ik0yMDExLjIsNDczLjgzYzE2Ljg5LTI1LjYzLDQzLjUzLTQyLDU1LjUxLTcwLjk0LDYuMi0xNC45NSw4LjQtMzMtLjM3LTQ3LjYxYTQyLjQ3LDQyLjQ3LDAsMCwwLTUuNTUtNy42MWMtNC43OS00LjgxLTI0LjcsMS4xMy0yOS44NCwzLjI2LTM0LjMxLDE0LjI1LTQ2LjE4LDU2LjQ2LTQ4LjY0LDkwLjItMi4yNSwzMC44Niw0LjkzLDYxLjQ1LDEyLjM2LDkxLjE3QzE5OTQuNDIsNTA5LjM2LDIwMDAuMDcsNDkwLjcxLDIwMTEuMiw0NzMuODNaIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSgtMjE5LjgzIC0yNjMuMzkpIi8+PC9nPjxwYXRoIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgY2xhc3M9ImNscy00IiBkPSJNMjAzMS4yOCw2MjguMjZjLTI0LjQ5LDAtNDguNS03Ljc1LTY3LjEtMjIuMTQtMjUuMzEtMTkuNTktNDAtNTItMzcuNDMtODIuNDhhODMuMyw4My4zLDAsMCwxLDQtMTkuNCwxNzguNjcsMTc4LjY3LDAsMCwwLTEwMC40Ni44M2wtLjQ5LjE1Yy0yNi44Nyw4LjE2LTUxLjcsNDYuNS0yOC44MSw4MC42NmwuMjkuNDJjNTAuOTEsNzMuNDQsMTQ5LjI2LDc4LDIzMC42LDQyWiIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoLTIxOS44MyAtMjYzLjM5KSIvPjxwYXRoIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgY2xhc3M9ImNscy00IiBkPSJNMjA0NCw2MzcuMmE4Mi43LDgyLjcsMCwwLDAtMzguNDEsNjcuMTIsOS44Myw5LjgzLDAsMSwxLTYuMjQuNzQsMTAsMTAsMCwwLDEsMS45MS0uNjksODcsODcsMCwwLDEsMzkuOC03MC40MiwxOC40MiwxOC40MiwwLDAsMS0yLjcyLTUuOTRjLTIuMzUuMTUtNC43MS4yNS03LjA3LjI1YTExNS44MywxMTUuODMsMCwwLDEtMTQuOTEtMWMtODAuMywxNi40Mi0xNDEuNTMsODYuNTEtMTQzLjQzLDE3MS45MiwwLC4xNywwLC4zNCwwLC41MS0uNTQsMjguMDcsMjguMjUsNjMuNTQsNjcuODEsNTIuMzJsLjQ4LS4xNGM4Ny0yNi4xMywxMjEuMzYtMTIwLjgxLDExMC42Ni0yMTAuNThBMTguMjYsMTguMjYsMCwwLDEsMjA0NCw2MzcuMloiIHRyYW5zZm9ybT0idHJhbnNsYXRlKC0yMTkuODMgLTI2My4zOSkiLz48cGF0aCB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGNsYXNzPSJjbHMtNCIgZD0iTTIxOTQuMzcsNjU0LjI3YTc2Ljc5LDc2Ljc5LDAsMCwwLTQxLjgyLTM4LjkyYy0yNC05LjE4LTUzLjQ4LTYuNTEtNzguMzMsNi44MWExOC4zLDE4LjMsMCwwLDEtMi43MSwxMS4xMUExNzkuMjgsMTc5LjI4LDAsMCwwLDIxOTQuMzcsNjU0LjI3WiIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoLTIxOS44MyAtMjYzLjM5KSIvPjxwYXRoIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgY2xhc3M9ImNscy00IiBkPSJNMjI4MC40NSw1MDRsLS40OC0uMTdjLTg1LjU4LTI5LjkzLTE2OSwyNi4yMi0yMTMuMTgsMTA1YTE3LjkxLDE3LjkxLDAsMCwxLDQuMTEsNC4xMywxOC40MSwxOC40MSwwLDAsMSwyLjQ3LDQuODNjMjUuOTEtMTMuNTgsNTUuNTgtMTYuMDYsODAuNzMtNi40MmE4MS4xOCw4MS4xOCwwLDAsMSw0NC42NCw0Mi4wOCwxNzguNzQsMTc4Ljc0LDAsMCwwLDEwNS41MS02Ni44M2wuMzEtLjQxQzIzMjEuNSw1NjMuNzYsMjMxOS4wNSw1MTguMTUsMjI4MC40NSw1MDRaIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSgtMjE5LjgzIC0yNjMuMzkpIi8+PHBhdGggeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiBjbGFzcz0iY2xzLTQiIGQ9Ik0yMjAxLjMzLDcwMi4zNmMtNy40MSwyMC45NS0yNS4zNCwzNy44OS00Ni4zMiw0Mi00LjA3LDQuMDYtOC45MSw4LjgzLTE0LjM1LDEwLjMyLTUuNywxLjU2LTEyLjkzLS44Mi0xNC42Mi02LjQ4YTcuNzIsNy43MiwwLDAsMS0uMzQtMi4xNmMtLjEyLTUuNzQsNS44OS0xMC45NCwxMS45NC0xMS4zOXMxMS44MywyLjMyLDE3LjIxLDUuMzRjMjAtNC4yMiwzNi45LTIxLDQzLjE2LTQxLjQ3LTMwLjgtMzQuMjItNzYuNTMtNTcuNjYtMTI1LjI1LTY3LjY1YTE4LjIyLDE4LjIyLDAsMCwxLTIyLjgzLDkuODVjLTE5Ljc5LDg3LjgsMjguOSwxNzguNCwxMTUuOTEsMjA4LjgybC40OC4xN2MyNi41Myw5LjE5LDY5LjE2LTcuMjMsNzAuNzItNDguMzIsMC0uMTcsMC0uMzQsMC0uNTFDMjIzNy45LDc2Mi41MSwyMjI0LjE1LDcyOS4yOCwyMjAxLjMzLDcwMi4zNloiIHRyYW5zZm9ybT0idHJhbnNsYXRlKC0yMTkuODMgLTI2My4zOSkiLz48cGF0aCB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGNsYXNzPSJjbHMtNCIgZD0iTTIwNDUuNDEsNjA4LjY5YTE4LDE4LDAsMCwxLDIuMTMtMS4yOSwxNzkuNTYsMTc5LjU2LDAsMCwwLTExMi42LTEwMS45Myw3OS4xNyw3OS4xNywwLDAsMC0zLjg3LDE4LjUzYy0yLjQ1LDI5LjA5LDExLjU5LDYwLDM1Ljc2LDc4LjY5LDE5LjQ5LDE1LjA4LDQ1LjIxLDIyLjUzLDcxLDIxQTE4LjIyLDE4LjIyLDAsMCwxLDIwNDUuNDEsNjA4LjY5WiIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoLTIxOS44MyAtMjYzLjM5KSIvPjwvc3ZnPg==" alt=""></div><h1>¡Gracias!</h1><div class="card">El aviso de privacidad quedó firmado y se guardó en el expediente de ${esc(info.paciente)}. Ya puedes cerrar esta página.</div></div>`; history.replaceState(null, "", location.pathname); }
     catch (e) { bt.disabled = false; toast(/usado/.test(e.code) ? "Este enlace ya se usó" : /vencido/.test(e.code) ? "El enlace venció" : "No se pudo guardar: " + e.code); }
   };
+}
+
+/* ============ Control de defunciones (solo Administración y Dirección) ============ */
+const defUrl = () => location.origin + location.pathname.replace(/[^/]*$/, "") + "defuncion.html";
+const defDocs = () => Object.values(S.ventas || {}).filter(x => x.doc === "defuncion" && !x.anulado);
+function defFormLink(tel, nombre) {
+  const t = String(tel || "").replace(/\D/g, ""); const txt = `Le acompañamos en su pérdida. Para elaborar el certificado de defunción${nombre ? " de " + nombre : ""}, por favor llene estos datos (toma unos 5 minutos):\n${defUrl()}`;
+  modal(`<h2>Formulario para la familia</h2><p class="small muted">La familia llena los datos en su celular y se los envía por WhatsApp a Alleviare (311 204 8763). Nombre, fecha y hora llegan solos al control de defunciones.</p><div class="card small" style="word-break:break-all">${esc(defUrl())}</div>
+    ${F("WhatsApp de la familia", `<input id="df-tel" type="tel" inputmode="tel" value="${esc(t)}" placeholder="10 dígitos">`)}
+    <div class="row"><button class="btn" id="df-wa">Enviar por WhatsApp</button><button class="btn ghost" id="df-copy">Copiar mensaje</button><button class="btn quiet" data-close>Listo</button></div>`);
+  $("#df-wa").onclick = () => { const x = $("#df-tel").value.replace(/\D/g, ""); window.open("https://wa.me/" + (x ? (x.length === 10 ? "52" + x : x) : "") + "?text=" + encodeURIComponent(txt), "_blank", "noopener"); };
+  $("#df-copy").onclick = () => navigator.clipboard.writeText(txt).then(() => toast("Mensaje copiado"), () => toast("No se pudo copiar"));
+}
+function defuncionesHTML() {
+  const ds = defDocs(); const ligados = new Set(ds.map(d => d.pid).filter(Boolean));
+  // vincular automáticamente por nombre
+  ds.filter(d => !d.pid).forEach(d => { const p = patients().find(x => norm(x.nombre) === norm(d.nombre)); if (p) { d.pid = p.id; ligados.add(p.id); Store.put("ventas", d); } });
+  const sinForm = patients().filter(p => p.estado === "defunción" && !ligados.has(p.id));
+  const rows = ds.slice().sort((a, b) => (b.fecha || "").localeCompare(a.fecha || ""));
+  const porCobrar = rows.filter(d => d.cobrado !== "Sí").length;
+  const medTxt = d => d.medico === "Otro" ? (d.medicoOtro || "Otro") : (d.medico || "");
+  return `<div class="stack">
+    <div class="kpis"><div class="kpi"><b>${rows.length}</b><span>Defunciones registradas</span></div><div class="kpi ${porCobrar ? "warn" : "ok"}"><b>${porCobrar}</b><span>Certificados sin cobrar</span></div><div class="kpi ${sinForm.length ? "warn" : "ok"}"><b>${sinForm.length}</b><span>Pacientes en defunción sin datos de la familia</span></div></div>
+    <div class="row"><button class="btn" id="def-link">Enviar formulario a una familia</button><button class="btn ghost" id="def-new">+ Registrar defunción</button></div>
+    ${sinForm.length ? `<div class="card stack"><div class="sec-t">Marcados como defunción en enfermería, sin formulario</div>${sinForm.map(p => `<div class="it small"><span>${esc(p.nombre)}</span><span><button class="link" data-def-send="${p.id}">Enviar formulario</button> · <button class="link" data-def-add="${p.id}">Registrar</button></span></div>`).join("")}</div>` : ""}
+    ${rows.length ? `<div class="card stack" style="gap:0;padding:4px 16px">${rows.map(d => `<div class="cl"><div class="cl-h"><span><b>${esc(d.nombre)}</b>${d.origen === "familia" ? ` <span class="pill acc">datos de la familia</span>` : ""}</span><span class="pill ${d.cobrado === "Sí" ? "ok" : "warn"}">${d.cobrado === "Sí" ? "Certificado cobrado" : "Sin cobrar"}</span></div>
+      <div class="small muted" style="margin-top:2px">Falleció ${d.fecha ? fmtD(d.fecha) : "—"}${d.hora ? " a las " + esc(d.hora) : ""} · Certificado: ${medTxt(d) ? "<b>" + esc(medTxt(d)) + "</b>" : "médico sin asignar"}${d.folioCert ? " · folio " + esc(d.folioCert) : ""}${d.cobrado === "Sí" ? " · " + money(d.monto) + (d.fechaPago ? " el " + fmtD(d.fechaPago) : "") : ""}</div>
+      <div class="row" style="margin-top:6px"><button class="btn sm" data-def-ed="${d.id}">Médico y cobro</button>${d.form ? `<button class="btn ghost sm" data-def-ver="${d.id}">Ver datos del certificado</button>` : ""}</div></div>`).join("")}</div>` : `<div class="empty">Sin defunciones registradas. Envía el formulario a la familia o regístrala aquí.</div>`}
+  </div>`;
+}
+document.addEventListener("click", e => {
+  if (e.target.id === "def-link") defFormLink("");
+  const s = e.target.closest("[data-def-send]"); if (s) { const p = S.patients[s.dataset.defSend]; defFormLink(p.telResp, p.nombre); }
+  const fl = e.target.closest("[data-def-form]"); if (fl) { const p = S.patients[fl.dataset.defForm]; defFormLink(p && p.telResp, p && p.nombre); }
+  if (e.target.id === "def-new") openDef(null);
+  const a = e.target.closest("[data-def-add]"); if (a) openDef(null, a.dataset.defAdd);
+  const ed = e.target.closest("[data-def-ed]"); if (ed) openDef(ed.dataset.defEd);
+  const v = e.target.closest("[data-def-ver]"); if (v) verDef(S.ventas[v.dataset.defVer]);
+});
+function openDef(id, pid) {
+  const ex = id ? S.ventas[id] : null; const p = pid ? S.patients[pid] : null;
+  const o = ex ? clone(ex) : { doc: "defuncion", origen: "registro", nombre: p ? p.nombre : "", pid: pid || "", fecha: "", hora: "", medico: "", medicoOtro: "", folioCert: "", cobrado: "No", monto: "", fechaPago: "", metodo: "", notas: "" }; const k = bnd(o);
+  modal(`<h2>${ex ? esc(ex.nombre) : "Registrar defunción"}</h2>
+    <div class="fieldgrid">${ex ? "" : F("Nombre", I(k, o, "nombre"), "full")}${F("Fecha de defunción", I(k, o, "fecha", 'type="date"'))}${F("Hora", I(k, o, "hora", 'type="time"'))}
+    ${F("Paciente de la plataforma", SEL(k, o, "pid", patients().sort((a, b) => a.nombre.localeCompare(b.nombre)).map(x => [x.id, x.nombre]), "Sin vincular"), "full")}
+    ${F("Médico que hizo el certificado", SEL(k, o, "medico", MEDICOS.concat(["Otro"])))}${F("Otro médico", I(k, o, "medicoOtro"))}${F("Folio del certificado", I(k, o, "folioCert"), "full")}
+    ${F("¿Se cobró el certificado?", CHIPS(k, o, "cobrado", ["Sí", "No"]), "full")}${F("Monto cobrado", I(k, o, "monto", 'type="number" min="0" step="0.01" inputmode="decimal"'))}${F("Fecha de pago", I(k, o, "fechaPago", 'type="date"'))}${F("Forma de pago", SEL(k, o, "metodo", ["Transferencia", "Efectivo", "Tarjeta", "Liga de pago"]))}
+    ${F("Notas", TA(k, o, "notas", 'rows="2"'), "full")}</div>
+    <div class="row"><button class="btn" id="def-ok">Guardar</button>${ex ? `<button class="btn danger" id="def-del">Eliminar</button>` : ""}<button class="btn quiet" data-close>Cancelar</button></div>`);
+  $("#def-ok").onclick = () => { if (String(o.nombre).trim().length < 5) return toast("Escribe el nombre"); if (o.cobrado === "Sí" && !(+o.monto > 0)) return toast("Escribe el monto cobrado"); const d = Object.assign(ex || { id: "def_" + uid("d").slice(-12), recibido: iso(), creadoPor: APP.user }, o); d.monto = +o.monto || 0; Store.put("ventas", d); closeModal(); render(); toast("Guardado"); };
+  if (ex) $("#def-del").onclick = () => askReason("Eliminar registro", "Motivo (queda registrado)", r => { ex.anulado = true; ex.anuladoMotivo = r; ex.anuladoPor = APP.user; Store.put("ventas", ex); closeModal(); render(); });
+}
+function verDef(d) {
+  const f = d.form || {}; const dt = x => x ? [x.calle, x.num, x.col && "Col. " + x.col, x.cp && "C.P. " + x.cp, x.mun, x.edo].filter(Boolean).join(", ") : "—";
+  const rows = [["Nombre", f.nombre], ["CURP", f.sinCurp || !f.curp ? "No la tienen a la mano" : String(f.curp).toUpperCase()], ["Afromexicano / afrodescendiente", f.afro], ["Se consideraba indígena", f.indigena], ["Hablaba lengua indígena", (f.lengua || "—") + (f.lenguaCual ? " (" + f.lenguaCual + ")" : "")], ["Fecha de defunción", fmtD(f.fecha)], ["Hora de defunción", f.hora],
+    ["Domicilio de residencia", dt(f.res)], ["Domicilio de defunción", f.mismo ? "El mismo de residencia" : dt(f.def)], ["Estado civil", f.civil], ["Escolaridad", f.escolaridad], ["Ocupación habitual", f.ocupacion], ["Seguridad social", (f.seguridad || "—") + (f.nss ? " · NSS " + f.nss : "")],
+    ["Informante", f.inf ? `${f.inf.nombre} (${f.inf.parentesco})${f.inf.tel ? " · " + f.inf.tel : ""}` : "—"], ["Cirugía últimas 4 semanas", (f.cirugia || "—") + (f.cirugiaCual ? " · " + f.cirugiaCual : "")], ["Enfermedad principal", (f.dx || "—") + (f.dxTiempo ? " · " + f.dxTiempo + " " + (f.dxUnidad || "") + " de evolución" : "")], ["Otras enfermedades", (f.otras || []).filter(x => x.enf).map(x => x.enf + (x.anios ? " (" + x.anios + " años)" : "")).join("; ") || "Ninguna"]];
+  modal(`<h2>Datos para el certificado</h2><p class="small muted">Enviados por la familia el ${fmtDT(d.recibido)}</p><div class="list card">${rows.map(([a, b]) => `<div class="it small"><span class="muted">${esc(a)}</span><b style="text-align:right">${esc(b || "—")}</b></div>`).join("")}</div><div class="row"><button class="btn quiet" data-close>Cerrar</button></div>`);
 }
 
 /* ============ logo para PDF ============ */
