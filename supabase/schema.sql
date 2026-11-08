@@ -223,6 +223,63 @@ begin
   insert into public.bitacora (staff, accion, col, doc_id) values (me.nombre, 'borrar', p_col, p_id);
 end $$;
 
+-- ---------- Aviso de privacidad: firma a distancia con enlace de un solo uso ----------
+create table if not exists public.aviso_links (
+  token uuid primary key default gen_random_uuid(),
+  pid text not null,
+  creado_por text not null,
+  creado timestamptz not null default now(),
+  expira timestamptz not null default now() + interval '7 days',
+  usado timestamptz
+);
+alter table public.aviso_links enable row level security;
+
+create or replace function public.api_aviso_link(p_token uuid, p_pid text)
+returns uuid language plpgsql security definer set search_path = public, extensions as $$
+declare me public.staff; t uuid;
+begin
+  me := public._me(p_token);
+  if not (public._can(me,'enfermeria') or public._can(me,'coordinacion')) then raise exception 'sin_permiso'; end if;
+  if not exists (select 1 from public.docs where col = 'patients' and id = p_pid and not deleted) then raise exception 'no_encontrado'; end if;
+  update public.aviso_links set expira = now() where pid = p_pid and usado is null and expira > now();
+  insert into public.aviso_links (pid, creado_por) values (p_pid, me.nombre) returning token into t;
+  insert into public.bitacora (staff, accion, col, doc_id) values (me.nombre, 'enlace aviso de privacidad', 'patients', p_pid);
+  return t;
+end $$;
+
+-- Lo que ve el familiar: solo el nombre del paciente y los datos de contacto del aviso.
+create or replace function public.api_aviso_get(p_link uuid)
+returns json language plpgsql security definer set search_path = public, extensions as $$
+declare l public.aviso_links; d jsonb;
+begin
+  select * into l from public.aviso_links where token = p_link;
+  if l.token is null or l.expira < now() then raise exception 'enlace_vencido'; end if;
+  if l.usado is not null then raise exception 'enlace_usado'; end if;
+  select data into d from public.docs where col = 'patients' and id = l.pid and not deleted;
+  if d is null then raise exception 'enlace_vencido'; end if;
+  return json_build_object('paciente', d->>'nombre', 'responsable', d->>'responsable',
+    'cfg', (select data from public.docs where col = 'config' and id = 'aviso' and not deleted));
+end $$;
+
+create or replace function public.api_aviso_firmar(p_link uuid, p_nombre text, p_relacion text, p_parentesco text, p_no_secundarias boolean, p_firma text)
+returns void language plpgsql security definer set search_path = public, extensions as $$
+declare l public.aviso_links; t timestamptz := clock_timestamp(); av jsonb;
+begin
+  select * into l from public.aviso_links where token = p_link for update;
+  if l.token is null or l.expira < now() then raise exception 'enlace_vencido'; end if;
+  if l.usado is not null then raise exception 'enlace_usado'; end if;
+  if length(trim(coalesce(p_nombre,''))) < 5 then raise exception 'nombre_invalido'; end if;
+  if coalesce(p_firma,'') !~ '^data:image/(jpeg|png);base64,' or length(p_firma) > 300000 then raise exception 'firma_invalida'; end if;
+  av := jsonb_build_object('firmadoPor', trim(p_nombre), 'relacion', coalesce(p_relacion,''), 'parentesco', coalesce(p_parentesco,''),
+    'noSecundarias', coalesce(p_no_secundarias,false), 'firma', p_firma, 'fecha', t, 'enfermera', 'Firma a distancia (enlace de ' || l.creado_por || ')', 'version', '2026-11', 'remoto', true);
+  update public.docs set data = data || jsonb_build_object('aviso', av, 'privacidad', 'Sí',
+      'audit', coalesce(data->'audit','[]'::jsonb) || jsonb_build_array(jsonb_build_object('t', t, 'who', trim(p_nombre), 'what', 'Aviso de privacidad firmado a distancia por enlace'))),
+    updated_at = t, updated_by = trim(p_nombre) || ' (enlace)'
+  where col = 'patients' and id = l.pid;
+  update public.aviso_links set usado = t where token = p_link;
+  insert into public.bitacora (staff, accion, col, doc_id) values (trim(p_nombre), 'firmó aviso de privacidad por enlace', 'patients', l.pid);
+end $$;
+
 -- ---------- Dirección: personal y permisos ----------
 create or replace function public.api_staff_all(p_token uuid)
 returns json language plpgsql security definer set search_path = public, extensions as $$
@@ -275,4 +332,5 @@ revoke all on function public._check_login(public.staff, text) from public, anon
 grant execute on function public.api_staff_list(), public.api_register(text,text,text,text,text,date,text), public.api_login(uuid,text),
   public.api_dir_login(text,text), public.api_dir_password(uuid,text,text), public.api_logout(uuid), public.api_pull(uuid,timestamptz),
   public.api_put(uuid,text,text,jsonb), public.api_delete(uuid,text,text), public.api_staff_all(uuid),
-  public.api_staff_update(uuid,uuid,boolean,boolean,text[]), public.api_staff_delete(uuid,uuid) to anon, authenticated;
+  public.api_staff_update(uuid,uuid,boolean,boolean,text[]), public.api_staff_delete(uuid,uuid), public.api_aviso_link(uuid,text), public.api_aviso_get(uuid),
+  public.api_aviso_firmar(uuid,text,text,text,boolean,text) to anon, authenticated;
