@@ -177,6 +177,7 @@ begin
     return json_build_object('now', clock_timestamp(), 'me', public._perfil(me), 'docs', '[]'::json);
   end if;
   select json_build_object('now', clock_timestamp(), 'me', public._perfil(me),
+    'pend_borrado', (select coalesce(json_agg(b.col || '/' || b.doc_id), '[]'::json) from public.borrado_solicitudes b where b.estado = 'pendiente'),
     'docs', coalesce(json_agg(json_build_object('col', d.col, 'id', d.id, 'deleted', d.deleted, 'u', d.updated_at,
       'data', case
         when clinico then d.data
@@ -296,6 +297,69 @@ begin
   return i;
 end $$;
 
+-- ---------- Borrado de registros: el personal solicita, solo Dirección autoriza ----------
+create table if not exists public.borrado_solicitudes (
+  id bigserial primary key,
+  col text not null,
+  doc_id text not null,
+  resumen text,
+  motivo text not null,
+  solicitado_por text not null,
+  creado timestamptz not null default now(),
+  estado text not null default 'pendiente' check (estado in ('pendiente','autorizada','rechazada')),
+  resuelto_por text,
+  resuelto timestamptz
+);
+alter table public.borrado_solicitudes enable row level security;
+
+create or replace function public.api_borrado_solicitar(p_token uuid, p_col text, p_id text, p_motivo text, p_resumen text)
+returns bigint language plpgsql security definer set search_path = public, extensions as $$
+declare me public.staff; i bigint;
+begin
+  me := public._me(p_token);
+  if p_col = 'patients' then
+    if not (public._can(me,'enfermeria') or public._can(me,'coordinacion') or public._can(me,'administracion')) then raise exception 'sin_permiso'; end if;
+  elsif p_col = 'ventas' then
+    if not public._can(me,'administracion') or p_id not like 'venta\_%' then raise exception 'sin_permiso'; end if;
+  else raise exception 'sin_permiso'; end if;
+  if length(trim(coalesce(p_motivo,''))) < 4 then raise exception 'motivo_requerido'; end if;
+  if not exists (select 1 from public.docs where col = p_col and id = p_id and not deleted) then raise exception 'no_encontrado'; end if;
+  select id into i from public.borrado_solicitudes where col = p_col and doc_id = p_id and estado = 'pendiente';
+  if i is not null then return i; end if;
+  insert into public.borrado_solicitudes (col, doc_id, resumen, motivo, solicitado_por) values (p_col, p_id, left(p_resumen, 300), trim(p_motivo), me.nombre) returning id into i;
+  insert into public.bitacora (staff, accion, col, doc_id) values (me.nombre, 'solicitó borrado: ' || trim(p_motivo), p_col, p_id);
+  return i;
+end $$;
+
+create or replace function public.api_borrado_list(p_token uuid)
+returns json language plpgsql security definer set search_path = public, extensions as $$
+declare me public.staff;
+begin
+  me := public._me(p_token);
+  if not me.es_direccion then raise exception 'sin_permiso'; end if;
+  return (select coalesce(json_agg(json_build_object('id', id, 'col', col, 'docId', doc_id, 'resumen', resumen, 'motivo', motivo, 'por', solicitado_por, 'creado', creado, 'estado', estado, 'resueltoPor', resuelto_por, 'resuelto', resuelto) order by (estado = 'pendiente') desc, creado desc), '[]'::json)
+    from (select * from public.borrado_solicitudes where estado = 'pendiente' or resuelto > now() - interval '30 days') s);
+end $$;
+
+-- Borrado lógico: el registro se oculta en la plataforma pero se conserva en la base (NOM-004 y bitácora).
+create or replace function public.api_borrado_resolver(p_token uuid, p_sol bigint, p_autorizar boolean)
+returns void language plpgsql security definer set search_path = public, extensions as $$
+declare me public.staff; s public.borrado_solicitudes; t timestamptz := clock_timestamp();
+begin
+  me := public._me(p_token);
+  if not me.es_direccion then raise exception 'sin_permiso'; end if;
+  select * into s from public.borrado_solicitudes where id = p_sol and estado = 'pendiente' for update;
+  if s.id is null then raise exception 'no_encontrada'; end if;
+  update public.borrado_solicitudes set estado = case when p_autorizar then 'autorizada' else 'rechazada' end, resuelto_por = me.nombre, resuelto = t where id = s.id;
+  if p_autorizar then
+    update public.docs set deleted = true, updated_at = t, updated_by = me.nombre where col = s.col and id = s.doc_id;
+    if s.col = 'patients' then
+      update public.docs set deleted = true, updated_at = t, updated_by = me.nombre where col = 'shifts' and data->>'patientId' = s.doc_id;
+    end if;
+  end if;
+  insert into public.bitacora (staff, accion, col, doc_id) values (me.nombre, case when p_autorizar then 'autorizó borrado' else 'rechazó borrado' end, s.col, s.doc_id);
+end $$;
+
 -- ---------- Dirección: personal y permisos ----------
 create or replace function public.api_staff_all(p_token uuid)
 returns json language plpgsql security definer set search_path = public, extensions as $$
@@ -349,4 +413,5 @@ grant execute on function public.api_staff_list(), public.api_register(text,text
   public.api_dir_login(text,text), public.api_dir_password(uuid,text,text), public.api_logout(uuid), public.api_pull(uuid,timestamptz),
   public.api_put(uuid,text,text,jsonb), public.api_delete(uuid,text,text), public.api_staff_all(uuid),
   public.api_staff_update(uuid,uuid,boolean,boolean,text[]), public.api_staff_delete(uuid,uuid), public.api_aviso_link(uuid,text), public.api_aviso_get(uuid),
-  public.api_aviso_firmar(uuid,text,text,text,boolean,text), public.api_defuncion_enviar(jsonb) to anon, authenticated;
+  public.api_aviso_firmar(uuid,text,text,text,boolean,text), public.api_defuncion_enviar(jsonb),
+  public.api_borrado_solicitar(uuid,text,text,text,text), public.api_borrado_list(uuid), public.api_borrado_resolver(uuid,bigint,boolean) to anon, authenticated;

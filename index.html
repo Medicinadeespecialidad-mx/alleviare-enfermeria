@@ -291,6 +291,7 @@ const SB = {
     try {
       const res = await this.rpc("api_pull", { p_token: t, p_since: this.since });
       this.applyMe(res.me); let n = 0;
+      const pb = new Set(res.pend_borrado || []); const old = Store.pendBorrado || new Set(); if (pb.size !== old.size || [...pb].some(x => !old.has(x))) { Store.pendBorrado = pb; borrList = null; n++; }
       (res.docs || []).forEach(d => { if (!S[d.col]) return; if (Store.pending.has(d.col + "/" + d.id)) return; if (d.deleted) delete S[d.col][d.id]; else S[d.col][d.id] = d.data; n++; });
       this.since = new Date(Date.parse(res.now) - 5000).toISOString();
       Store.err = this.outbox.length ? "Sin conexión: " + this.outbox.length + " cambio(s) por enviar." : "";
@@ -385,9 +386,10 @@ const sbVisible = v => !!APP.user && (v === "dir" ? !!APP.dir : can(VIEW_PERM[v]
 function renderTop() {
   document.querySelectorAll("#nav button").forEach(b => { b.classList.toggle("on", b.dataset.view === APP.view); b.hidden = Store.mode === "sb" && !sbVisible(b.dataset.view); });
   const ab = document.querySelector('#nav button[data-view="adm"]'); if (ab) { const n = APP.user && isVentas() ? invAlertas().agot.length + invAlertas().bajo.length + invAlertas().cad.length : 0; ab.innerHTML = "Administración" + (n ? ` <span class="nb">${n}</span>` : ""); }
+  const db = document.querySelector('#nav button[data-view="dir"]'); if (db) { const n = APP.dir && Store.pendBorrado ? Store.pendBorrado.size : 0; db.innerHTML = "Dirección" + (n ? ` <span class="nb">${n}</span>` : ""); }
   $("#nav").hidden = Store.mode === "sb" && !["enf", "coord", "inv", "adm", "dir"].some(sbVisible);
   $("#who").innerHTML = APP.user ? `<span class="av" aria-hidden="true">${esc(APP.user.split(" ").filter(Boolean).slice(0, 2).map(w => w[0]).join("").toUpperCase())}</span><span class="hide-sm"><b>${esc(APP.user.split(" ").slice(0, 2).join(" "))}</b></span><button class="link small" id="logout">Salir</button>` : "";
-  const lo = $("#logout"); if (lo) lo.onclick = () => { if (Store.mode === "sb") { SB.rpc("api_logout", { p_token: SB.token() }).catch(() => { }); SB.clearSession(); } APP.user = ""; APP.nid = ""; APP.coordOk = false; APP.admOk = false; ss("al.user", null); ss("al.nid", null); ss("al.coord", null); ss("al.adm", null); if (APP.view === "dir") APP.view = "enf"; go({ p: "home" }); };
+  const lo = $("#logout"); if (lo) lo.onclick = () => { if (Store.mode === "sb") { SB.rpc("api_logout", { p_token: SB.token() }).catch(() => { }); SB.clearSession(); } APP.user = ""; APP.nid = ""; borrList = null; Store.pendBorrado = null; APP.coordOk = false; APP.admOk = false; ss("al.user", null); ss("al.nid", null); ss("al.coord", null); ss("al.adm", null); if (APP.view === "dir") APP.view = "enf"; go({ p: "home" }); };
 }
 
 /* ============ render principal ============ */
@@ -516,7 +518,7 @@ function dirLoginHTML() {
     <form id="dlog" class="stack card">${F("Usuario", `<input id="d-user" autocomplete="username" required>`)}${F("Contraseña", `<input id="d-pass" type="password" autocomplete="current-password" required>`)}<button class="btn">Entrar a Dirección</button></form><button class="link small" id="dir-back">← Volver al acceso del personal</button></div>`;
 }
 function bindDirLogin() { const bk = $("#dir-back"); if (bk) bk.onclick = () => { APP.view = "enf"; render(); }; const f = $("#dlog"); if (!f) return; f.onsubmit = async e => { e.preventDefault(); const bt = f.querySelector("button"); bt.disabled = true;
-  try { const res = await SB.rpc("api_dir_login", { p_usuario: $("#d-user").value, p_pass: $("#d-pass").value }); SB.setSession(res); staffLoaded = false; Store.loaded = false; render(); await SB.pull(); toast("Bienvenida, " + APP.user.split(" ")[0]); }
+  try { const res = await SB.rpc("api_dir_login", { p_usuario: $("#d-user").value, p_pass: $("#d-pass").value }); SB.setSession(res); staffLoaded = false; borrList = null; Store.loaded = false; render(); await SB.pull(); toast("Bienvenida, " + APP.user.split(" ")[0]); }
   catch (er) { bt.disabled = false; $("#d-pass").value = ""; toast(/pin_incorrecto|no_encontrada/.test(er.code) ? "Usuario o contraseña incorrectos" : /bloqueada/.test(er.code) ? "Demasiados intentos. Espera 15 minutos." : "No se pudo entrar: " + er.code); } }; }
 function dirHTML() {
   if (Store.mode !== "sb") return `<div class="stack gate"><h1>Dirección</h1><div class="card">La gestión de personal y permisos funciona en la versión publicada en GitHub, conectada al servidor de Alleviare.</div></div>`;
@@ -534,6 +536,7 @@ function dirHTML() {
     </div>`;
   return `<div class="stack">
     <div class="row between"><h1>Dirección</h1><button class="btn ghost sm" id="dir-pass">Cambiar mi contraseña</button></div>
+    ${borradosHTML()}
     <p class="muted">Autoriza a cada persona registrada y marca a qué secciones entra. Los cambios aplican de inmediato.</p>
     ${(() => { const a = invAlertas(); return a.total || a.sinInv.length ? `<div class="alert warn row between"><span><b>Insumos:</b> ${a.agot.length} agotados, ${a.bajo.length} por terminarse, ${a.cad.length} caducados, ${a.por.length} por caducar${a.sinInv.length ? ` · ${a.sinInv.length} enfermera(s) sin inventario` : ""}.</span><button class="btn sm" id="dir-alr">Ver alertas</button></div>` : ""; })()}
     <div class="kpis"><div class="kpi ${pend.length ? "warn" : "ok"}"><b>${pend.length}</b><span>Pendientes de autorizar</span></div><div class="kpi"><b>${all.filter(n => n.activa && (n.permisos || []).length).length}</b><span>Con acceso</span></div><div class="kpi"><b>${all.filter(n => !n.activa).length}</b><span>Inactivas</span></div></div>
@@ -672,6 +675,7 @@ function patientHTML(pid, coord) {
       ${pend.length ? `<div class="row">${pend.map(([c, t]) => `<span class="pill ${c}">${esc(t)}</span>`).join("")}</div>` : ""}
       ${p.estado === "defunción" || p.nivel === "finvida" ? `<div class="row"><button class="btn ghost sm" data-def-form="${p.id}">Formulario de certificado de defunción para la familia</button></div>` : ""}
       <div class="row">${p.aviso ? `<button class="btn quiet sm" data-aviso="${p.id}">Aviso de privacidad firmado ✓</button>` : `<span class="pill warn">Aviso de privacidad sin firmar</span><button class="btn ghost sm" data-aviso="${p.id}">Firmar en pantalla</button>${Store.mode === "sb" ? `<button class="btn ghost sm" data-aviso-link="${p.id}">Enviar enlace al familiar</button>` : ""}`}</div>
+      <div class="row">${borrBtn("patients", p.id, APP.dir || Store.mode !== "sb" ? "Borrar paciente" : "Solicitar borrado del paciente")}</div>
       ${!coord && p.estado === "activo" ? `<div class="row">${open ? `<button class="btn" data-go="${goA({ p: "shift", sid: open.id })}">Continuar mi turno de hoy</button>` : `<button class="btn" id="start-shift" data-pid="${p.id}">Iniciar turno</button>`}</div>` : ""}
     </div>
     <div class="tabs" id="ptabs">${tabs.map(([id, l]) => `<button data-tab="${id}" class="${pTab === id ? "on" : ""}">${l}</button>`).join("")}</div>
@@ -1737,7 +1741,7 @@ function cobranzaHTML() {
     ${xs.length ? `<div class="card stack" style="gap:0;padding:4px 16px">${xs.map(v => { const [c, t] = estadoVenta(v); const pg = pagadoDe(v); return `<div class="cl"><div class="cl-h"><span><b>${esc(v.folio)}</b> · ${esc(v.paciente)}</span><b class="num">${money(v.total)}</b></div>
       <div class="cl-h small muted" style="margin-top:2px"><span>${esc(v.tipo)} · ${fmtD(v.t)} · ${esc(v.cliente || "")}</span><span class="pill ${c}">${esc(t)}</span></div>
       ${esCxC(v) ? `<div class="small" style="margin-top:4px">Pagado ${money(pg)} · <b>Saldo ${money(Math.max(0, v.total - pg))}</b>${(v.pagos || []).filter(p => !p.anulado).length ? `<div class="muted">${v.pagos.filter(p => !p.anulado).map(p => `${fmtD(p.fecha)} ${money(p.monto)} ${esc(p.metodo)}${p.ref ? " (" + esc(p.ref) + ")" : ""}`).join(" · ")}</div>` : ""}</div>` : ""}
-      <div class="row" style="margin-top:6px">${esCxC(v) && pg < v.total - 0.009 ? `<button class="btn sm" data-pay="${v.id}">Registrar pago</button>` : ""}${!esCxC(v) && v.estadoCot !== "Rechazada" ? `<button class="btn sm" data-cotok="${v.id}">Aceptada por el paciente</button><button class="btn quiet sm" data-cotno="${v.id}">Rechazada</button>` : ""}<button class="link small" data-vcancel="${v.id}">Cancelar documento</button></div></div>`; }).join("")}</div>` : `<div class="empty">Sin documentos en esta lista. Se crean al generar el PDF de una cotización o nota de venta.</div>`}
+      <div class="row" style="margin-top:6px">${esCxC(v) && pg < v.total - 0.009 ? `<button class="btn sm" data-pay="${v.id}">Registrar pago</button>` : ""}${!esCxC(v) && v.estadoCot !== "Rechazada" ? `<button class="btn sm" data-cotok="${v.id}">Aceptada por el paciente</button><button class="btn quiet sm" data-cotno="${v.id}">Rechazada</button>` : ""}<button class="link small" data-vcancel="${v.id}">Cancelar documento</button>${borrBtn("ventas", v.id)}</div></div>`; }).join("")}</div>` : `<div class="empty">Sin documentos en esta lista. Se crean al generar el PDF de una cotización o nota de venta.</div>`}
   </div>`;
 }
 document.addEventListener("click", e => {
@@ -1768,7 +1772,7 @@ function pacientesAdmHTML() {
     <div class="kpis"><div class="kpi"><b>${rows.filter(r => r.p.estado === "activo").length}</b><span>Pacientes activos</span></div><div class="kpi ${rows.some(r => r.saldo > 0) ? "warn" : "ok"}"><b>${rows.filter(r => r.saldo > 0).length}</b><span>Con saldo pendiente</span></div><div class="kpi ${rows.some(r => r.sinCot) ? "warn" : "ok"}"><b>${rows.filter(r => r.sinCot).length}</b><span>Con atenciones sin cotizar</span></div></div>
     ${rows.length ? `<div class="card stack" style="gap:0;padding:4px 16px">${rows.map(r => `<div class="cl"><div class="cl-h"><span><b>${esc(r.p.nombre)}</b> <span class="pill ${r.p.estado === "activo" ? "ok" : "muted"}">${esc(r.p.estado || "")}</span></span><b class="num">${r.saldo > 0 ? `<span style="color:var(--bad,#B3261E)">Saldo ${money(r.saldo)}</span>` : r.vendido ? "Al corriente" : ""}</b></div>
       <div class="small muted" style="margin-top:2px">${r.mesN} atenciones este mes · última ${r.ult ? fmtD(r.ult.fecha) + " (" + esc(r.ult.enfermera) + ")" : "—"} · vendido ${money(r.vendido)} · cobrado ${money(r.cobrado)}${r.ultDoc ? " · último documento " + esc(r.ultDoc.folio) : ""}</div>
-      <div class="row" style="margin-top:6px">${r.sinCot ? `<span class="pill warn">${r.sinCot} atención(es) sin cerrar ni cotizar</span><button class="btn sm" data-srv-closep="${r.p.id}">Cerrar servicio</button>` : ""}<button class="btn ghost sm" data-adm-cot="${r.p.id}">Cotizar</button></div></div>`).join("")}</div>` : emptyDemo()}
+      <div class="row" style="margin-top:6px">${r.sinCot ? `<span class="pill warn">${r.sinCot} atención(es) sin cerrar ni cotizar</span><button class="btn sm" data-srv-closep="${r.p.id}">Cerrar servicio</button>` : ""}<button class="btn ghost sm" data-adm-cot="${r.p.id}">Cotizar</button>${borrBtn("patients", r.p.id)}</div></div>`).join("")}</div>` : emptyDemo()}
   </div>`;
 }
 document.addEventListener("click", e => { const b = e.target.closest("[data-adm-cot]"); if (b) { admSel.pid = b.dataset.admCot; admTab = "cot"; render(); window.scrollTo(0, 0); } });
@@ -2028,6 +2032,90 @@ function verDef(d) {
     ["Informante", f.inf ? `${f.inf.nombre} (${f.inf.parentesco})${f.inf.tel ? " · " + f.inf.tel : ""}` : "—"], ["Cirugía últimas 4 semanas", (f.cirugia || "—") + (f.cirugiaCual ? " · " + f.cirugiaCual : "")], ["Enfermedad principal", (f.dx || "—") + (f.dxTiempo ? " · " + f.dxTiempo + " " + (f.dxUnidad || "") + " de evolución" : "")], ["Otras enfermedades", (f.otras || []).filter(x => x.enf).map(x => x.enf + (x.anios ? " (" + x.anios + " años)" : "")).join("; ") || "Ninguna"]];
   modal(`<h2>Datos para el certificado</h2><p class="small muted">Enviados por la familia el ${fmtDT(d.recibido)}</p><div class="list card">${rows.map(([a, b]) => `<div class="it small"><span class="muted">${esc(a)}</span><b style="text-align:right">${esc(b || "—")}</b></div>`).join("")}</div><div class="row"><button class="btn quiet" data-close>Cerrar</button></div>`);
 }
+
+/* ============ BORRADO: el personal solicita, solo Dirección borra ============ */
+let borrList = null, borrLoading = false;
+const pendBorr = (c, id) => !!(Store.pendBorrado && Store.pendBorrado.has(c + "/" + id));
+const borrPill = (c, id) => pendBorr(c, id) ? `<span class="pill bad">Borrado pendiente de Dirección</span>` : "";
+function borrBtn(c, id, label) {
+  if (pendBorr(c, id)) return borrPill(c, id);
+  return `<button class="link small" style="color:var(--bad,#B3261E)" data-borr="${c}/${id}">${label || (APP.dir || Store.mode !== "sb" ? "Borrar" : "Solicitar borrado")}</button>`;
+}
+function borrResumen(c, id) {
+  const x = S[c][id]; if (!x) return id;
+  if (c === "patients") return "Paciente " + x.nombre + (x.fechaNac ? " (nac. " + fmtD(x.fechaNac) + ")" : "");
+  return (x.tipo || "Documento") + " " + (x.folio || id) + " · " + (x.paciente || "") + " · " + money(x.total || 0);
+}
+function borrLocal(c, id) {
+  if (c === "patients") Object.values(S.shifts).filter(s => s.patientId === id).forEach(s => delete S.shifts[s.id]);
+  delete S[c][id];
+}
+function borrDespues(c, id) {
+  if (APP.r && APP.r.p === "patient" && APP.r.pid === id) go({ p: "home" }); else render();
+}
+function pedirBorrado(c, id) {
+  const x = S[c][id]; if (!x) return;
+  const res = borrResumen(c, id); const nTurnos = c === "patients" ? Object.values(S.shifts).filter(s => s.patientId === id).length : 0;
+  const extra = nTurnos ? ` También se ocultarán sus ${nTurnos} registro(s) de turno.` : "";
+  if (Store.mode !== "sb") return confirmBox("¿Borrar " + res + "?" + extra + " No se puede deshacer.", () => {
+    if (c === "patients") Object.values(S.shifts).filter(s => s.patientId === id).forEach(s => Store.del("shifts", s.id));
+    Store.del(c, id); toast("Borrado"); borrDespues(c, id);
+  });
+  const dir = !!APP.dir;
+  modal(`<h2>${dir ? "Borrar" : "Solicitar borrado"}</h2>
+    <div class="card small"><b>${esc(res)}</b></div>
+    <p class="small muted">${dir ? "Como Dirección, el borrado se aplica de inmediato." + extra + " El registro se oculta en toda la plataforma y queda resguardado en la bitácora del servidor, como pide la NOM-004."
+      : "Solo Dirección puede borrar registros. Tu solicitud le llegará para que la autorice; mientras tanto el registro sigue visible."}</p>
+    ${F(dir ? "Motivo (opcional, queda en la bitácora)" : "Motivo del borrado", `<input id="br-m" placeholder="${dir ? "Paciente de prueba, duplicado…" : "Registro duplicado, paciente de prueba…"}">`, "full")}
+    <div class="row"><button class="btn danger" id="br-ok">${dir ? "Borrar ahora" : "Enviar solicitud a Dirección"}</button><button class="btn quiet" data-close>Cancelar</button></div>`);
+  $("#br-ok").onclick = async () => {
+    let m = $("#br-m").value.trim();
+    if (!dir && m.length < 4) return toast("Escribe el motivo");
+    if (dir && m.length < 4) m = "Borrado directo por Dirección";
+    $("#br-ok").disabled = true;
+    try {
+      const sid = await SB.rpc("api_borrado_solicitar", { p_token: SB.token(), p_col: c, p_id: id, p_motivo: m, p_resumen: res });
+      if (dir) {
+        await SB.rpc("api_borrado_resolver", { p_token: SB.token(), p_sol: sid, p_autorizar: true });
+        borrLocal(c, id); borrList = null; closeModal(); toast("Borrado"); borrDespues(c, id); return;
+      }
+      (Store.pendBorrado = Store.pendBorrado || new Set()).add(c + "/" + id);
+      modal(`<h2>Solicitud enviada</h2><div class="alert ok">Se envió a Dirección para completar el borrado de <b>${esc(res)}</b>. Seguirá visible con la etiqueta “Borrado pendiente” hasta que Dirección lo autorice.</div><div class="row"><button class="btn" data-close>Entendido</button></div>`);
+      render();
+    } catch (e) { $("#br-ok").disabled = false; toast(/sin_permiso/.test(e.code) ? "No tienes permiso para esta acción" : /no_encontrado/.test(e.code) ? "El registro ya no existe" : "No se pudo: " + e.code); }
+  };
+}
+function loadBorrados() {
+  if (borrLoading) return; borrLoading = true;
+  SB.rpc("api_borrado_list", { p_token: SB.token() }).then(x => { borrList = x || []; }).catch(() => { borrList = []; }).finally(() => { borrLoading = false; render(); });
+}
+function borradosHTML() {
+  if (!borrList) { loadBorrados(); return `<div class="card small muted">Cargando solicitudes de borrado…</div>`; }
+  const pend = borrList.filter(b => b.estado === "pendiente"), hech = borrList.filter(b => b.estado !== "pendiente").slice(0, 6);
+  const tipo = b => b.col === "patients" ? "Paciente" : "Cotización / nota de venta";
+  return `<div class="card stack">
+    <div class="row between"><h3>Solicitudes de borrado</h3>${pend.length ? `<span class="pill bad">${pend.length} pendiente(s)</span>` : `<span class="pill ok">Sin pendientes</span>`}</div>
+    ${pend.length ? pend.map(b => `<div class="cl"><div class="cl-h"><span><b>${esc(b.resumen || b.docId)}</b></span><span class="pill">${tipo(b)}</span></div>
+      <div class="small muted" style="margin-top:2px">Pidió ${esc(b.por)} el ${fmtDT(b.creado)} · Motivo: ${esc(b.motivo)}</div>
+      <div class="row" style="margin-top:6px"><button class="btn danger sm" data-borr-ok="${b.id}">Autorizar y borrar</button><button class="btn quiet sm" data-borr-no="${b.id}">Rechazar</button></div></div>`).join("")
+      : `<p class="small muted" style="margin:0">Cuando alguien del equipo pida borrar un paciente o una cotización, aparecerá aquí para que lo autorices. Tú puedes borrar directo desde el expediente del paciente o desde Administración.</p>`}
+    ${hech.length ? `<details><summary class="small muted">Resueltas recientemente</summary>${hech.map(b => `<div class="small" style="margin-top:4px">${b.estado === "autorizada" ? "✓ Borrado" : "✗ Rechazado"}: ${esc(b.resumen || b.docId)} · pidió ${esc(b.por)} · ${fmtD(b.resuelto)}</div>`).join("")}</details>` : ""}
+  </div>`;
+}
+function resolverBorrado(id, ok) {
+  const b = (borrList || []).find(x => String(x.id) === String(id)); if (!b) return;
+  const run = () => SB.rpc("api_borrado_resolver", { p_token: SB.token(), p_sol: b.id, p_autorizar: ok }).then(() => {
+    if (Store.pendBorrado) Store.pendBorrado.delete(b.col + "/" + b.docId);
+    if (ok && S[b.col]) borrLocal(b.col, b.docId);
+    borrList = null; toast(ok ? "Borrado autorizado" : "Solicitud rechazada"); render();
+  }).catch(e => toast("No se pudo: " + e.code));
+  ok ? confirmBox("¿Borrar " + (b.resumen || b.docId) + "? Se ocultará en toda la plataforma.", run) : run();
+}
+document.addEventListener("click", e => {
+  const b = e.target.closest("[data-borr]"); if (b) { const [c, id] = b.dataset.borr.split("/"); pedirBorrado(c, id); }
+  const a = e.target.closest("[data-borr-ok]"); if (a) resolverBorrado(a.dataset.borrOk, true);
+  const r = e.target.closest("[data-borr-no]"); if (r) resolverBorrado(r.dataset.borrNo, false);
+});
 
 /* ============ logo para PDF ============ */
 let LOGO_PNG = null, LOGO_RATIO = 0.28;
