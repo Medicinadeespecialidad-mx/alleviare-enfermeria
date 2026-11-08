@@ -157,6 +157,7 @@ tr.click{cursor:pointer;transition:background .12s} tr.click:hover td{background
 .tot{font-family:var(--f-display);font-size:2rem;font-weight:600;font-variant-numeric:lining-nums tabular-nums;color:var(--accent)}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 .cl{padding:10px 0;border-bottom:1px solid var(--line)}.cl:last-child{border-bottom:0}.cl.off{opacity:.5}.cl.off .cl-h b:first-child{text-decoration:line-through}.cl-h{display:flex;justify-content:space-between;gap:12px;align-items:baseline}.cl-f{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-top:6px}.cl-f label{display:flex;flex-direction:column;font-size:.7rem;color:var(--muted);gap:2px}.cl-f label{flex:0 0 auto;align-items:flex-start}.cl-f .cell{width:100px!important;min-width:0;padding:6px 8px;font-size:.88rem}.cl-f select.cell{width:auto!important}select.cell{width:auto}.cl-a{margin-left:auto;padding-bottom:6px}.kmoney{font-size:1.5rem!important}.tot{gap:6px}.nb{display:inline-block;min-width:17px;padding:0 5px;border-radius:9px;background:#C0392B;color:#fff;font-size:.66rem;line-height:17px;text-align:center;font-weight:700;margin-left:2px}table.cot td{vertical-align:middle}
+.card.tot{font-family:inherit;font-size:1rem;font-weight:400;color:inherit}.card.tot b{font-size:1.2rem;color:var(--accent)}
 </style>
 <style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}[hidden]{display:none!important}img{max-width:100%}</style></head><body><script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
@@ -296,6 +297,7 @@ const SB = {
       this.since = new Date(Date.parse(res.now) - 5000).toISOString();
       Store.err = this.outbox.length ? "Sin conexión: " + this.outbox.length + " cambio(s) por enviar." : "";
       if (n || !Store.loaded) { Store.loaded = true; scheduleRender(); }
+      if (n) altasAviso();
     } catch (e) {
       if (/sesion_invalida/.test(e.code)) { this.clearSession(); Store.loaded = true; toast("Tu sesión terminó. Vuelve a entrar."); render(); return; }
       Store.loaded = true; Store.err = "Sin conexión con el servidor. Lo que registres se enviará al volver la señal."; scheduleRender();
@@ -386,6 +388,7 @@ const sbVisible = v => !!APP.user && (v === "dir" ? !!APP.dir : can(VIEW_PERM[v]
 function renderTop() {
   document.querySelectorAll("#nav button").forEach(b => { b.classList.toggle("on", b.dataset.view === APP.view); b.hidden = Store.mode === "sb" && !sbVisible(b.dataset.view); });
   const ab = document.querySelector('#nav button[data-view="adm"]'); if (ab) { const n = APP.user && isVentas() ? invAlertas().agot.length + invAlertas().bajo.length + invAlertas().cad.length : 0; ab.innerHTML = "Administración" + (n ? ` <span class="nb">${n}</span>` : ""); }
+  const eb = document.querySelector('#nav button[data-view="enf"]'); if (eb) { const n = APP.user ? altasMias().length : 0; eb.innerHTML = "Enfermería" + (n ? ` <span class="nb">${n}</span>` : ""); }
   const db = document.querySelector('#nav button[data-view="dir"]'); if (db) { const n = APP.dir && Store.pendBorrado ? Store.pendBorrado.size : 0; db.innerHTML = "Dirección" + (n ? ` <span class="nb">${n}</span>` : ""); }
   $("#nav").hidden = Store.mode === "sb" && !["enf", "coord", "inv", "adm", "dir"].some(sbVisible);
   $("#who").innerHTML = APP.user ? `<span class="av" aria-hidden="true">${esc(APP.user.split(" ").filter(Boolean).slice(0, 2).map(w => w[0]).join("").toUpperCase())}</span><span class="hide-sm"><b>${esc(APP.user.split(" ").slice(0, 2).join(" "))}</b></span><button class="link small" id="logout">Salir</button>` : "";
@@ -429,6 +432,7 @@ const goA = r => esc(JSON.stringify(r));
 /* ============ acceso: registro de enfermeras y código personal ============ */
 let gateMode = "login", regTipo = "enfermeria";
 const PUESTOS = ["Administración", "Contabilidad", "Coordinación", "Almacén e insumos", "Recepción", "Otro"];
+const enfermeras = () => nurses().filter(n => n.activa !== false && (Store.mode === "sb" ? n.enf !== false : (n.tipo || "enfermeria") === "enfermeria"));
 const nurses = () => Store.mode === "sb" ? (Store.staff || []).map(n => Object.assign({ activa: true, codeHash: "srv" }, n)) : Object.values(S.nurses || {});
 async function codeHash(id, code) {
   const txt = "alleviare:" + id + ":" + code;
@@ -535,7 +539,7 @@ function dirHTML() {
       <div class="row"><button class="btn quiet sm" data-sreset="${n.id}">Restablecer contraseña</button><button class="btn ${n.activa ? "danger" : "quiet"} sm" data-stoggle="${n.id}" data-on="${n.activa ? 1 : 0}">${n.activa ? "Desactivar" : "Activar"}</button><button class="btn danger sm" data-sdel="${n.id}">Eliminar</button></div>
     </div>`;
   return `<div class="stack">
-    <div class="row between"><h1>Dirección</h1><button class="btn ghost sm" id="dir-pass">Cambiar mi contraseña</button></div>
+    <div class="row between"><h1>Dirección</h1><div class="row"><button class="btn sm" id="alta-new">+ Paciente a domicilio</button><button class="btn ghost sm" id="dir-pass">Cambiar mi contraseña</button></div></div>
     ${borradosHTML()}
     <p class="muted">Autoriza a cada persona registrada y marca a qué secciones entra. Los cambios aplican de inmediato.</p>
     ${(() => { const a = invAlertas(); return a.total || a.sinInv.length ? `<div class="alert warn row between"><span><b>Insumos:</b> ${a.agot.length} agotados, ${a.bajo.length} por terminarse, ${a.cad.length} caducados, ${a.por.length} por caducar${a.sinInv.length ? ` · ${a.sinInv.length} enfermera(s) sin inventario` : ""}.</span><button class="btn sm" id="dir-alr">Ver alertas</button></div>` : ""; })()}
@@ -587,6 +591,7 @@ function nurseHomeHTML() {
   return `<div class="stack">
     <div class="row between"><h1>Buscar paciente</h1><div class="row"><button class="btn ghost" data-go="${goA({ p: "myinv" })}">Mi inventario${low + exp ? ` <span class="pill bad">${low + exp}</span>` : ""}</button><button class="btn" data-go="${goA({ p: "new" })}">Registrar paciente</button></div></div>
     ${!myItems.length ? `<div class="alert warn row between"><span><b>Registra tu inventario.</b> Es obligatorio antes de iniciar un turno.</span><button class="btn sm" data-go="${goA({ p: "myinv" })}">Registrar</button></div>` : !lastConteo(APP.user) || daysTo(lastConteo(APP.user).slice(0, 10)) < -7 ? `<div class="alert row between"><span>Confirma tu inventario de esta semana.</span><button class="btn ghost sm" data-go="${goA({ p: "myinv" })}">Revisar</button></div>` : ""}
+    ${altasHTML()}
     <div class="card stack">
       ${F("Nombre del paciente", `<input id="q" type="search" autocomplete="off" placeholder="Escribe al menos 4 letras del nombre o apellido" value="${esc(searchQ)}">`)}
       <div id="q-res">${searchResults()}</div>
@@ -614,7 +619,8 @@ function blankPatient() { return { nombre: "", fechaNac: "", sexo: "", diagnosti
 function newPatientHTML() {
   if (!newP) newP = blankPatient(); const k = bnd(newP, () => { });
   return `<div class="stack">
-    <div class="row between"><h1>Registrar paciente</h1><button class="btn quiet" data-go="${goA({ p: "home" })}">Cancelar</button></div>
+    <div class="row between"><h1>${newP.porCompletar ? "Completar registro" : "Registrar paciente"}</h1><button class="btn quiet" id="np-cancel" data-go="${goA({ p: "home" })}">Cancelar</button></div>
+    ${newP.porCompletar && newP.alta ? `<div class="alert">Registrado por ${esc(newP.alta.por || "Administración")} para <b>${esc(modLabel(newP.alta.modalidad))}</b>: ${esc(newP.alta.detalle || "")} · ${esc(cuandoTxt(newP.alta))}. Completa lo que falta.</div>` : ""}
     <form id="np" class="stack">
       <div class="card stack"><div class="sec-t">Datos del paciente</div>
         <div class="fieldgrid">
@@ -641,7 +647,8 @@ function newPatientHTML() {
 document.addEventListener("submit", e => {
   if (e.target.id !== "np") return; e.preventDefault();
   const p = newP; if (!p.nombre.trim() || !p.fechaNac) { toast("Nombre y fecha de nacimiento son obligatorios"); return; }
-  const dup = patients().find(x => norm(x.nombre) === norm(p.nombre) && x.fechaNac === p.fechaNac);
+  const dup = patients().find(x => x.id !== p.id && norm(x.nombre) === norm(p.nombre) && x.fechaNac === p.fechaNac);
+  if (p.id && S.patients[p.id]) { const o = Object.assign(S.patients[p.id], clone(p), { porCompletar: false, completadoPor: APP.user, completadoEn: iso() }); o.nombre = o.nombre.trim(); if (!o.nivelHist) o.nivelHist = [{ nivel: o.nivel, t: iso(), who: APP.user }]; audit(o, "Registro completado por enfermería (" + o.tipoAtencion + ", " + NIVELES[o.nivel].n + ")"); Store.put("patients", o); newP = null; toast("Registro completado"); go({ p: "patient", pid: o.id }); return; }
   if (dup) { toast("Ese paciente ya existe. Se abrió su expediente."); newP = null; go({ p: "patient", pid: dup.id }); return; }
   const o = Object.assign({ id: uid("p"), estado: "activo", meds: [], indicaciones: [], creadoPor: APP.user, creadoEn: iso(), nivelHist: [{ nivel: p.nivel, t: iso(), who: APP.user }] }, p);
   o.nombre = o.nombre.trim(); audit(o, "Registro del paciente (" + o.tipoAtencion + ", " + NIVELES[o.nivel].n + ")");
@@ -775,7 +782,7 @@ function openStartShift(pid) {
   const p = S.patients[pid]; const prev = shiftsOf(pid).length;
   const h = new Date().getHours(); const o = { fecha: today(), turno: h >= 7 && h < 15 ? TURNOS[0] : h >= 15 && h < 21 ? TURNOS[1] : TURNOS[2], tipoAtencion: prev ? "Subsecuente" : "Primera vez" }; const k = bnd(o);
   modal(`<h2>Iniciar turno</h2><p class="muted">${esc(p.nombre)}</p><div class="fieldgrid">${F("Fecha", I(k, o, "fecha", 'type="date"'))}${F("Turno", SEL(k, o, "turno", TURNOS))}${F("Atención", CHIPS(k, o, "tipoAtencion", ["Primera vez", "Subsecuente"]), "full")}${F("Enfermera", `<input value="${esc(APP.user)}" disabled>`, "full")}</div><div class="row"><button class="btn" id="s-ok">Iniciar</button><button class="btn quiet" data-close>Cancelar</button></div>`);
-  $("#s-ok").onclick = () => { const prevS = shiftsOf(pid)[0]; const sv0 = srvOpenFor(pid); const s = Object.assign({ id: uid("s"), patientId: pid, servicioId: sv0 ? sv0.id : "", enfermera: APP.user, creadoEn: iso(), evaluaciones: [], admin: [], insumos: [], bomba: { usada: false }, acceso: prevS && prevS.acceso ? clone(prevS.acceso) : {}, servicio: { servicios: [], inicio: nowHM(), km: prevS && prevS.servicio ? prevS.servicio.km : "", distancia: prevS && prevS.servicio ? prevS.servicio.distancia : "" }, comentario: "", cerrado: false }, o); audit(s, "Inició turno"); Store.put("shifts", s); closeModal(); go({ p: "shift", sid: s.id }); };
+  $("#s-ok").onclick = () => { const prevS = shiftsOf(pid)[0]; const sv0 = srvOpenFor(pid); const s = Object.assign({ id: uid("s"), patientId: pid, servicioId: sv0 ? sv0.id : "", enfermera: APP.user, creadoEn: iso(), evaluaciones: [], admin: [], insumos: [], bomba: { usada: false }, acceso: prevS && prevS.acceso ? clone(prevS.acceso) : {}, servicio: { servicios: [], modalidad: (p.alta && p.alta.modalidad) || (prevS && prevS.servicio && prevS.servicio.modalidad) || "", inicio: nowHM(), km: prevS && prevS.servicio ? prevS.servicio.km : "", distancia: prevS && prevS.servicio ? prevS.servicio.distancia : "" }, comentario: "", cerrado: false }, o); audit(s, "Inició turno"); Store.put("shifts", s); closeModal(); go({ p: "shift", sid: s.id }); };
 }
 const canEdit = s => !s.cerrado && norm(s.enfermera) === norm(APP.user) && APP.view === "enf";
 let openEv = null;
@@ -1050,7 +1057,7 @@ function buildPDF(s, p) {
   at({ body: [[b.usada ? `Sí. Equipo: ${S.items[b.equipoId]?.nombre || "—"} ${b.serie ? "· serie " + b.serie : ""} · ${b.solucion || ""} · ${b.velocidad || "—"} ml/h · ${b.inicio || ""}–${b.fin || ""} ${b.obs || ""}` : "No se utilizó."]] });
   const sv = s.servicio || {};
   title("Servicio realizado y traslado");
-  at({ body: [["Servicios", (sv.servicios || []).map(x => x === "Otro" && sv.otro ? "Otro: " + sv.otro : x).join(", ") || "—"], ["Horario y horas de cuidado", `${sv.inicio || "—"} a ${sv.fin || "—"} · ${horasDe(sv)} h`], ["Trayecto", `${sv.km ? sv.km + " km · " : ""}${distLabel(sv.distancia)}`], ["Punzocortantes en contenedor RPBI", s.rpbi || "—"]], columnStyles: { 0: { fontStyle: "bold", cellWidth: 170 } } });
+  at({ body: [["Modalidad", modLabel(modDe(sv, S.patients[s.patientId]))], ["Servicios", (sv.servicios || []).map(x => x === "Otro" && sv.otro ? "Otro: " + sv.otro : x).join(", ") || "—"], ["Horario y horas de cuidado", `${sv.inicio || "—"} a ${sv.fin || "—"} · ${horasDe(sv)} h`], ["Trayecto", `${sv.km ? sv.km + " km · " : ""}${distLabel(sv.distancia)}`], ["Punzocortantes en contenedor RPBI", s.rpbi || "—"]], columnStyles: { 0: { fontStyle: "bold", cellWidth: 170 } } });
   title("Comentario de enfermería");
   at({ body: [[s.comentario || "Sin comentario."]], styles: { fontSize: 9, cellPadding: 6 } });
   if (y > 650) { doc.addPage(); y = 40; }
@@ -1158,7 +1165,7 @@ function openItem(id) {
 }
 let invOwner = "todas", invTab = "alertas";
 function invHTML() {
-  const all = Object.values(S.items); const owners = [...new Set(all.map(i => i.owner).concat(nurses().filter(n => n.activa !== false).map(n => n.nombre)))].sort();
+  const all = Object.values(S.items); const owners = [...new Set(all.map(i => i.owner).concat(enfermeras().map(n => n.nombre)))].sort();
   const xs = all.filter(i => invOwner === "todas" || norm(i.owner) === norm(invOwner));
   const agot = xs.filter(i => i.tipo !== "Equipo" && +i.cantidad <= 0), bajo = xs.filter(i => i.tipo !== "Equipo" && +i.cantidad > 0 && +i.cantidad <= +(i.minimo || 0));
   const cad = xs.filter(i => +i.cantidad > 0 && daysTo(i.caducidad) < 0), por = xs.filter(i => +i.cantidad > 0 && daysTo(i.caducidad) >= 0 && daysTo(i.caducidad) <= 90).sort((a, b) => a.caducidad.localeCompare(b.caducidad));
@@ -1199,6 +1206,9 @@ document.addEventListener("click", e => { const a = e.target.closest("[data-jump
 
 /* ============ servicio realizado, horas y traslado (para administración) ============ */
 const SERVICIOS = ["Visita de valoración de enfermería", "Cuidados de enfermería por hora", "Turno de cuidados 8 h", "Turno de cuidados 12 h", "Turno de cuidados 24 h", "Aplicación de medicamento IV", "Aplicación de medicamento IM / SC", "Canalización periférica", "Instalación de acceso subcutáneo (hipodermoclisis)", "Curación de herida / úlcera por presión", "Curación de catéter central / PICC", "Instalación o cambio de sonda vesical", "Instalación o cambio de sonda nasogástrica", "Cuidados de gastrostomía / estoma", "Aspiración de secreciones", "Cuidados de traqueostomía", "Manejo de bomba de infusión", "Toma de muestras de laboratorio", "Transfusión (vigilancia)", "Nutrición enteral / parenteral", "Acompañamiento en final de vida", "Vigilancia de sedación paliativa", "Educación y capacitación al cuidador", "Cuidados post mortem", "Otro"];
+const MODALIDADES = [["express", "Enfermería Express", "Menos de 4 h: hidratación, baño, quimioterapia, aplicación de medicamentos, curaciones…"], ["continua", "Atención continua · Enfermera cuidadora", "Cuidados en casa de 6 a 24 h; se cobra por hora, complejidad y distancia"]];
+const modLabel = m => (MODALIDADES.find(x => x[0] === m) || [0, ""])[1];
+const modDe = (sv, p) => sv.modalidad || (p && p.alta && p.alta.modalidad) || (horasDe(sv) > 4 ? "continua" : "express");
 const DIST = [["corto", "Corto", 0, 10], ["mediano", "Mediano", 10, 25], ["largo", "Largo", 25, 50], ["foraneo", "Foráneo", 50, 1e9]];
 const distLabel = id => { const d = DIST.find(x => x[0] === id); return d ? `${d[1]} (${d[3] > 1e8 ? "más de " + d[2] : d[2] + "–" + d[3]} km)` : "—"; };
 const distOf = km => { km = +km; if (!km && km !== 0) return ""; return (DIST.find(d => km >= d[2] && km < d[3]) || DIST[3])[0]; };
@@ -1206,8 +1216,9 @@ function horasDe(sv) { if (sv.horasManual !== "" && sv.horasManual != null) retu
 function servicioHTML(s, k, ed) {
   const sv = s.servicio || (s.servicio = { servicios: [] }); sv.servicios = sv.servicios || [];
   const p = S.patients[s.patientId];
-  if (!ed) return `<div class="card fieldgrid"><div class="full"><div class="sec-t">Servicios</div>${sv.servicios.length ? sv.servicios.map(x => `<span class="pill acc">${esc(x)}</span>`).join(" ") : "—"}${sv.otro ? `<div class="small">${esc(sv.otro)}</div>` : ""}</div><div><div class="sec-t">Horario</div>${esc(sv.inicio || "—")}–${esc(sv.fin || "—")}</div><div><div class="sec-t">Horas de cuidado</div><b class="num">${horasDe(sv)}</b> h</div><div><div class="sec-t">Distancia</div><b class="num">${esc(sv.km || "—")}</b> km · ${esc(distLabel(sv.distancia))}</div></div>`;
+  if (!ed) return `<div class="card fieldgrid"><div class="full"><div class="sec-t">Modalidad</div>${esc(modLabel(modDe(sv, p)))}</div><div class="full"><div class="sec-t">Servicios</div>${sv.servicios.length ? sv.servicios.map(x => `<span class="pill acc">${esc(x)}</span>`).join(" ") : "—"}${sv.otro ? `<div class="small">${esc(sv.otro)}</div>` : ""}</div><div><div class="sec-t">Horario</div>${esc(sv.inicio || "—")}–${esc(sv.fin || "—")}</div><div><div class="sec-t">Horas de cuidado</div><b class="num">${horasDe(sv)}</b> h</div><div><div class="sec-t">Distancia</div><b class="num">${esc(sv.km || "—")}</b> km · ${esc(distLabel(sv.distancia))}</div></div>`;
   return `<div class="card stack">
+    ${F("Modalidad", CHIPS(k, s, "servicio.modalidad", MODALIDADES.map(m => m[0])).replace(/>(express|continua)</g, (m, id) => ">" + modLabel(id) + "<"), "full")}
     ${F("Tipo de servicio realizado", `<select id="sv-add"><option value="">Agregar un servicio de la lista…</option>${SERVICIOS.filter(x => !sv.servicios.includes(x)).map(x => `<option>${esc(x)}</option>`).join("")}</select>`)}
     <div class="chips">${sv.servicios.map(x => `<button type="button" class="chip on" data-sv-del="${esc(x)}" title="Quitar">${esc(x)} ✕</button>`).join("") || `<span class="small muted">Ningún servicio seleccionado.</span>`}</div>
     ${sv.servicios.includes("Otro") ? F("Especifica el otro servicio", I(k, s, "servicio.otro")) : ""}
@@ -1299,20 +1310,27 @@ function cotizacion(pid, desde, hasta) {
   };
   sh.forEach(s => { const sv = s.servicio || {};
     (sv.servicios || []).forEach(n => { const nm = n === "Otro" && sv.otro ? "Otro: " + sv.otro : n; add("svc:" + nm, nm, "enf", "servicio", 1, findCat("svc:" + n, nm)); });
-    const h = horasDe(sv); if (h) { const c = findCat("hora", "Hora de cuidado de enfermería"); if (c) add("hora", "Hora de cuidado de enfermería", "enf", "hora", h, c); }
+    const h = horasDe(sv);
+    if (modDe(sv, p) === "express") { add("express", "Enfermería Express (hasta 4 h)", "enf", "visita", 1, findCat("express", "Enfermería Express (hasta 4 h)")); if (h > 4) add("express_hx", "Hora adicional de Enfermería Express", "enf", "hora", r2(h - 4), findCat("express_hx", "Hora adicional de Enfermería Express")); }
+    else if (h) { add("hora", "Enfermera cuidadora · atención continua (por hora)", "enf", "hora", h, findCat("hora", "Hora de cuidado de enfermería")); if (["alto", "finvida"].includes(p.nivel)) add("hora_comp", "Complemento por alta complejidad (por hora)", "enf", "hora", h, findCat("hora_comp", "Complemento por alta complejidad (por hora)")); }
     if (sv.distancia) add("dist:" + sv.distancia, "Atención a domicilio · trayecto " + distLabel(sv.distancia), "dom", "visita", 1, findCat("dist:" + sv.distancia));
     (s.insumos || []).forEach(x => { const it = x.itemId && S.items[x.itemId]; const c = findCat("", x.nombre, it && it.codigo); const cat = catFromItem(it);
       add("ins:" + (c ? c.id : norm(x.nombre)), x.nombre, cat, (it && it.unidad) || "pza", +x.cantidad, c, it && +it.precio ? { pu: Math.ceil(+it.precio * (1 + empresa().margen / 100)), iva: catOf(cat)[3] } : null); });
     if (s.bomba && s.bomba.usada) add("renta_bomba", "Renta de bomba de infusión eléctrica (por turno)", "ren", "turno", 1, findCat("renta_bomba", "Renta de bomba de infusión eléctrica (por turno)"));
   });
-  if (srv) (srv.planeado || []).forEach(pl => { const c = S.ventas[pl.catId]; const k = planKey(pl, c); if (lines.some(l => l.key === k)) return; if (sh.length && ["ins:", "svc:", "hora", "dist:", "renta_bomba"].some(x => k.startsWith(x))) return; lines.push({ key: k, concepto: c ? c.nombre : pl.concepto, cat: c ? c.cat : (pl.cat || "otr"), unidad: (c && c.unidad) || "servicio", cant: +pl.cant, pu: c ? precioCat(c) : 0, iva: c ? (c.iva || catOf(c.cat)[3]) : "16", plan: true, auto: true }); });
+  if (srv) (srv.planeado || []).forEach(pl => { const c = S.ventas[pl.catId]; const k = planKey(pl, c); if (lines.some(l => l.key === k)) return; if (sh.length && ["ins:", "svc:", "hora", "express", "dist:", "renta_bomba"].some(x => k.startsWith(x))) return; lines.push({ key: k, concepto: c ? c.nombre : pl.concepto, cat: c ? c.cat : (pl.cat || "otr"), unidad: (c && c.unidad) || "servicio", cant: +pl.cant, pu: c ? precioCat(c) : 0, iva: c ? (c.iva || catOf(c.cat)[3]) : "16", plan: true, auto: true }); });
   lines.forEach(l => { const a = q.ajustes[l.key]; if (a) { if (a.pu !== "" && a.pu != null) { l.puAuto = l.pu; l.pu = +a.pu; l.ajustado = true; } if (a.cant !== "" && a.cant != null) { l.cantAuto = l.cant; l.cant = +a.cant; l.ajustado = true; } if (a.iva) l.iva = a.iva; if (a.quitar) l.quitar = true; } });
   (q.extras || []).forEach(x => lines.push({ key: "x:" + x.id, xid: x.id, concepto: x.concepto, cat: x.cat || "otr", unidad: x.unidad || "servicio", cant: +x.cant || 0, pu: +x.pu || 0, iva: x.iva || catOf(x.cat || "otr")[3], extra: true }));
   const act = lines.filter(l => !l.quitar && l.cant);
   const base = { "16": 0, "0": 0, ex: 0 }; act.forEach(l => base[l.iva] = r2((base[l.iva] || 0) + l.cant * l.pu));
+  const bruto = r2(base["16"] + base["0"] + base.ex); const dd = q.descuento || {}; let desc = 0;
+  if (+dd.valor > 0 && bruto > 0) desc = dd.modo === "$" ? r2(Math.min(+dd.valor, bruto)) : r2(bruto * Math.min(+dd.valor, 100) / 100);
+  if (desc) { const f = 1 - desc / bruto; ["16", "0", "ex"].forEach(t => base[t] = r2(base[t] * f)); }
   const sub = r2(base["16"] + base["0"] + base.ex), iva = r2(base["16"] * 0.16);
-  return { p, q, sh, srv, lines, act, base, sub, iva, total: r2(sub + iva) };
+  return { p, q, sh, srv, lines, act, base, bruto, desc, sub, iva, total: r2(sub + iva) };
 }
+const descTxt = c => { const d = c.q.descuento || {}; return "Descuento" + (d.modo !== "$" ? " " + +d.valor + " %" : "") + (d.motivo ? " (" + d.motivo + ")" : ""); };
+document.addEventListener("change", e => { const el = e.target.closest("[data-desc]"); if (!el || !admSel.pid) return; const q = cotDoc(admSel.pid); q.descuento = q.descuento || { modo: "%" }; q.descuento[el.dataset.desc] = el.value; if (el.dataset.desc === "modo") q.descuento.valor = ""; saveCot(q); setTimeout(render, 0); });
 const saveCot = q => { S.ventas[q.id] = q; saveSoon("ventas", q, 500); };
 
 /* --- importe con letra --- */
@@ -1374,12 +1392,16 @@ function cotHTML(ps) {
     <p class="small muted">Se generan solos con lo que registró la enfermera: servicios, horas, trayecto, insumos y bomba. Puedes ajustar cantidad, precio o IVA de cada renglón, quitarlo o agregar conceptos.</p>
     ${c.lines.length ? `<div class="card stack" style="gap:0;padding:6px 16px">${grupos.map(g => `<div class="sec-t" style="padding:12px 0 4px">${esc(catOf(g)[1])}</div>` + c.lines.filter(l => l.cat === g).map(row).join("")).join("")}</div>
       <div class="card stack tot">
+        ${c.desc ? `<div class="row between"><span>Importe</span><span class="num">${money(c.bruto)}</span></div><div class="row between" style="color:var(--ok,#1E7B4A)"><span>Descuento${(c.q.descuento || {}).modo !== "$" ? " " + +c.q.descuento.valor + " %" : ""}${c.q.descuento.motivo ? `<div class="small muted">${esc(c.q.descuento.motivo)}</div>` : ""}</span><span class="num">−${money(c.desc)}</span></div>` : ""}
         <div class="row between"><span>Subtotal</span><span class="num">${money(c.sub)}</span></div>
         ${c.base["0"] ? `<div class="row between small muted"><span>Base tasa 0 %</span><span class="num">${money(c.base["0"])}</span></div>` : ""}
         ${c.base.ex ? `<div class="row between small muted"><span>Base exenta</span><span class="num">${money(c.base.ex)}</span></div>` : ""}
         <div class="row between"><span>IVA 16 % sobre ${money(c.base["16"])}</span><span class="num">${money(c.iva)}</span></div>
         <div class="row between"><b>Total</b><b class="num">${money(c.total)}</b></div>
-      <p class="small muted">${esc(numLetra(c.total))}</p></div>` : `<div class="empty">Sin conceptos en el periodo. Agrega uno abajo o revisa las fechas.</div>`}
+      <p class="small muted">${esc(numLetra(c.total))}</p></div>
+      <div class="card stack"><div class="sec-t">Descuento</div>
+        <div class="row" style="align-items:flex-end;flex-wrap:wrap">${F("Tipo", `<select data-desc="modo"><option value="%" ${(q.descuento || {}).modo !== "$" ? "selected" : ""}>Porcentaje (%)</option><option value="$" ${(q.descuento || {}).modo === "$" ? "selected" : ""}>Cantidad fija ($)</option></select>`)}${F((q.descuento || {}).modo === "$" ? "Monto antes de IVA" : "Porcentaje", `<input data-desc="valor" type="number" min="0" step="0.01" inputmode="decimal" style="width:120px" value="${esc((q.descuento || {}).valor || "")}" placeholder="0">`)}${F("Motivo (aparece en el documento)", `<input data-desc="motivo" value="${esc((q.descuento || {}).motivo || "")}" placeholder="Paciente recurrente, convenio…">`)}</div>
+        <p class="small muted" style="margin:0">Se aplica al importe antes de IVA y se reparte entre todos los conceptos.</p></div>` : `<div class="empty">Sin conceptos en el periodo. Agrega uno abajo o revisa las fechas.</div>`}
     <div class="row"><button class="btn ghost sm" id="cot-add">+ Agregar concepto</button></div>
     <h2>Datos para el documento</h2>
     <div class="card fieldgrid">
@@ -1428,8 +1450,9 @@ let catFilter = "";
 function catalogoHTML() {
   const e = empresa(); const xs = catalogo();
   const items = Object.values(S.items); const sinCat = [...new Map(items.filter(i => !findCat("", i.nombre, i.codigo)).map(i => [norm(i.nombre), i])).values()];
-  const shown = catFilter ? xs.filter(x => x.cat === catFilter) : xs;
+  const shown = catFilter ? xs.filter(x => x.cat === catFilter) : xs; const faltan = xs.length ? catFaltan() : [];
   return `<div class="stack">
+    ${faltan.length ? `<div class="alert warn row between"><span>Faltan conceptos para cotizar <b>Enfermería Express</b> y <b>Enfermera cuidadora</b>: ${faltan.map(x => esc(x[0])).join(", ")}.</span><button class="btn sm" id="cat-nuevos">Agregarlos</button></div>` : ""}
     <div class="card stack"><div class="row between"><div><div class="sec-t">Margen sobre costo</div><p class="small muted">A los productos se les suma este porcentaje al costo de compra (rango sugerido de mercado ${e.margenMin}–${e.margenMax} %). Cada producto puede tener su propio margen y un precio final ajustado.</p></div>
       <div class="row"><input id="mg-g" type="number" min="0" max="200" step="1" value="${e.margen}" style="width:90px"> <span>%</span></div></div></div>
     ${!xs.length ? `<div class="card stack"><b>El catálogo está vacío.</b><p class="small muted">Crea el catálogo base con los servicios de enfermería, horas de cuidado, trayectos, bombas, médico especialista y terapia física. Después solo capturas los precios.</p><div class="row"><button class="btn" id="cat-seed">Crear catálogo base</button></div></div>` : ""}
@@ -1471,11 +1494,14 @@ function openCat(id, pre) {
   const upd = () => { const pu = precioCat(o); const iv = o.iva || "16"; const sug = $("#cat-sug"); if (sug) { const mg = o.margen === "" || o.margen == null ? em.margen : +o.margen; sug.textContent = +o.costo ? money(Math.ceil(+o.costo * (1 + mg / 100))) : "—"; } const t = $("#cat-tot"); if (t) t.textContent = money(pu) + " + " + ivaTxt(iv) + " = " + money(pu * (iv === "16" ? 1.16 : 1)); };
   draw();
 }
+const CAT_NUEVOS = [["Enfermería Express (hasta 4 h)", "enf", "visita", "express"], ["Hora adicional de Enfermería Express", "enf", "hora", "express_hx"], ["Complemento por alta complejidad (por hora)", "enf", "hora", "hora_comp"]];
+function catFaltan() { return CAT_NUEVOS.filter(x => !catalogo().some(c => c.clave === x[3])); }
+document.addEventListener("click", e => { if (e.target.id === "cat-nuevos") { catFaltan().forEach(([nombre, cat, unidad, clave]) => Store.put("ventas", { id: "cat_" + uid("c").slice(-10), doc: "cat", nombre, cat, unidad, clave, iva: catOf(cat)[3], costo: "", margen: "", precioFinal: "", honorario: "", cuota: "", precio: "" })); render(); toast("Conceptos agregados. Captura sus precios."); } });
 function seedCatalog() {
   if (catalogo().length) return;
   const mk = (nombre, cat, unidad, clave, extra) => Store.put("ventas", Object.assign({ id: "cat_" + uid("c").slice(-10), doc: "cat", nombre, cat, unidad, clave, iva: catOf(cat)[3], costo: "", margen: "", precioFinal: "", honorario: "", cuota: "", precio: "", creadoEn: iso(), creadoPor: APP.user }, extra || {}));
   SERVICIOS.filter(s => s !== "Otro").forEach(s => mk(s, "enf", "servicio", "svc:" + s));
-  mk("Hora de cuidado de enfermería", "enf", "hora", "hora");
+  CAT_NUEVOS.forEach(x => mk(...x)); mk("Enfermera cuidadora · atención continua (por hora)", "enf", "hora", "hora");
   DIST.forEach(d => mk("Atención a domicilio · trayecto " + distLabel(d[0]), "dom", "visita", "dist:" + d[0]));
   mk("Renta de bomba de infusión eléctrica (por turno)", "ren", "turno", "renta_bomba");
   mk("Bomba elastomérica", "bom", "pza", "");
@@ -1521,7 +1547,7 @@ function invAlertas() {
   const xs = Object.values(S.items);
   const agot = xs.filter(i => i.tipo !== "Equipo" && +i.cantidad <= 0), bajo = xs.filter(i => i.tipo !== "Equipo" && +i.cantidad > 0 && +i.cantidad <= +(i.minimo || 0));
   const cad = xs.filter(i => +i.cantidad > 0 && daysTo(i.caducidad) < 0), por = xs.filter(i => +i.cantidad > 0 && daysTo(i.caducidad) >= 0 && daysTo(i.caducidad) <= 60).sort((a, b) => a.caducidad.localeCompare(b.caducidad));
-  const enf = nurses().filter(n => n.activa !== false && (n.tipo || "enfermeria") === "enfermeria").map(n => n.nombre);
+  const enf = enfermeras().map(n => n.nombre);
   const sinInv = enf.filter(n => !itemsOf(n).length);
   return { agot, bajo, cad, por, sinInv, total: agot.length + bajo.length + cad.length + por.length };
 }
@@ -1565,7 +1591,7 @@ function cotPDFBlob(c, folio) {
   if (q.tipo !== "Nota de venta") { doc.setTextColor(110); doc.text(`Vigencia: ${e.vigencia} días naturales (hasta el ${fmtD(ymd(new Date(Date.now() + e.vigencia * 864e5)))})`, M, y + 2); doc.setTextColor(45, 43, 66); y += 10; }
   const body = []; CATS.forEach(cg => { const ls = c.act.filter(l => l.cat === cg[0]); if (!ls.length) return; body.push([{ content: cg[1], colSpan: 6, styles: { fillColor: [251, 234, 243], fontStyle: "bold" } }]); ls.forEach(l => body.push([String(l.cant), l.unidad || "", pz(l.concepto), money(l.pu), ivaTxt(l.iva), money(l.cant * l.pu)])); });
   doc.autoTable({ startY: y + 6, margin: { left: M, right: M }, theme: "grid", styles: { fontSize: 8.5, cellPadding: 4, lineColor: [236, 228, 230], lineWidth: .4, textColor: [45, 43, 66] }, headStyles: { fillColor: [239, 239, 249], textColor: [70, 72, 130], fontStyle: "bold" }, head: [["Cant.", "Unidad", "Concepto", "P. unitario", "IVA", "Importe"]], body, columnStyles: { 0: { halign: "right", cellWidth: 38 }, 1: { cellWidth: 50 }, 3: { halign: "right", cellWidth: 72 }, 4: { cellWidth: 52 }, 5: { halign: "right", cellWidth: 76 } } });
-  const tot = [["Subtotal", money(c.sub)]]; if (c.base["0"]) tot.push(["Base tasa 0 %", money(c.base["0"])]); if (c.base.ex) tot.push(["Base exenta", money(c.base.ex)]); tot.push(["IVA 16 %", money(c.iva)]); tot.push(["TOTAL", money(c.total)]);
+  const tot = c.desc ? [["Importe", money(c.bruto)], [descTxt(c), "-" + money(c.desc)], ["Subtotal", money(c.sub)]] : [["Subtotal", money(c.sub)]]; if (c.base["0"]) tot.push(["Base tasa 0 %", money(c.base["0"])]); if (c.base.ex) tot.push(["Base exenta", money(c.base.ex)]); tot.push(["IVA 16 %", money(c.iva)]); tot.push(["TOTAL", money(c.total)]);
   doc.autoTable({ startY: doc.lastAutoTable.finalY + 4, margin: { left: W - M - 220, right: M }, theme: "plain", styles: { fontSize: 9, cellPadding: 3, textColor: [45, 43, 66] }, body: tot.map(([a, b], i) => i === tot.length - 1 ? [{ content: a, styles: { fontStyle: "bold" } }, { content: b, styles: { fontStyle: "bold", halign: "right" } }] : [a, { content: b, styles: { halign: "right" } }]) });
   y = doc.lastAutoTable.finalY + 6; doc.setFontSize(8.5); doc.text("Importe con letra: " + numLetra(c.total), M, y); y += 16;
   // forma de pago
@@ -1597,7 +1623,7 @@ function openCotDoc() {
   if (c.q.pago.metodo === "Liga de pago" && !c.q.pago.ligaUrl && !e.ligas.find(x => x.id === c.q.pago.ligaId)) return toast("Elige o pega la liga de pago");
   const folio = nextFolio(c.q.tipo); let blob; try { blob = cotPDFBlob(c, folio); } catch (er) { console.error(er); return toast("No se pudo generar el PDF: " + er.message); }
   const q = c.q; q.emitidas = (q.emitidas || []).concat([{ folio, tipo: q.tipo || "Cotización", total: c.total, t: iso(), por: APP.user, desde: admSel.desde, hasta: admSel.hasta }]); S.ventas[q.id] = q; Store.put("ventas", q);
-  const cl0 = q.cliente || {}; Store.put("ventas", { id: "venta_" + folio, doc: "venta", folio, tipo: q.tipo || "Cotización", pid: c.p.id, srvId: c.srv ? c.srv.id : "", paciente: c.p.nombre, cliente: cl0.nombre || c.p.responsable || c.p.nombre, tel: cl0.tel || "", correo: cl0.correo || "", desde: admSel.desde, hasta: admSel.hasta, sub: c.sub, iva: c.iva, total: c.total, base: c.base, metodo: q.pago.metodo, lines: c.act.map(l => ({ concepto: l.concepto, cat: l.cat, unidad: l.unidad, cant: l.cant, pu: l.pu, iva: l.iva })), pagos: [], t: iso(), por: APP.user, estadoCot: q.tipo === "Nota de venta" ? "" : "Enviada" });
+  const cl0 = q.cliente || {}; Store.put("ventas", { id: "venta_" + folio, doc: "venta", folio, tipo: q.tipo || "Cotización", pid: c.p.id, srvId: c.srv ? c.srv.id : "", paciente: c.p.nombre, cliente: cl0.nombre || c.p.responsable || c.p.nombre, tel: cl0.tel || "", correo: cl0.correo || "", desde: admSel.desde, hasta: admSel.hasta, bruto: c.bruto, descuento: c.desc, descTxt: c.desc ? descTxt(c) : "", sub: c.sub, iva: c.iva, total: c.total, base: c.base, metodo: q.pago.metodo, lines: c.act.map(l => ({ concepto: l.concepto, cat: l.cat, unidad: l.unidad, cant: l.cant, pu: l.pu, iva: l.iva })), pagos: [], t: iso(), por: APP.user, estadoCot: q.tipo === "Nota de venta" ? "" : "Enviada" });
   const fname = `${(q.tipo || "Cotización").replace(/ /g, "_")}_${folio}_${c.p.nombre.replace(/[^\wÁÉÍÓÚÑáéíóúñ]+/g, "_")}.pdf`;
   const cl = q.cliente || {}; const tel = String(cl.tel || "").replace(/\D/g, "");
   const texto = `Alleviare · ${q.tipo || "Cotización"} ${folio}\nPaciente: ${c.p.nombre}\nTotal: ${money(c.total)} (IVA incluido)\nSe adjunta el documento en PDF.`;
@@ -1650,7 +1676,7 @@ document.addEventListener("click", e => {
   const x = e.target.closest("[data-srv-cancel]"); if (x) { const s = S.config[x.dataset.srvCancel]; askReason("Cancelar servicio", "Motivo (queda registrado)", r => { s.cancelado = true; s.canceladoMotivo = r; s.canceladoPor = APP.user; Store.put("config", s); render(); }); }
 });
 function openSrvNew() {
-  const ps = patients().filter(p => p.estado === "activo").sort((a, b) => a.nombre.localeCompare(b.nombre)); const ns = nurses().filter(n => n.activa !== false && (n.tipo || "enfermeria") === "enfermeria").map(n => n.nombre).sort();
+  const ps = patients().filter(p => p.estado === "activo").sort((a, b) => a.nombre.localeCompare(b.nombre)); const ns = enfermeras().map(n => n.nombre).sort();
   if (!ps.length) return toast("Primero registra al paciente en Enfermería");
   const o = { pid: admSel.pid || ps[0].id, enfermera: "", inicio: today(), fin: "", notas: "", planeado: [] }; const k = bnd(o);
   const xs = catalogo().sort((a, b) => a.cat.localeCompare(b.cat) || a.nombre.localeCompare(b.nombre));
@@ -1669,9 +1695,9 @@ function openSrvNew() {
 }
 function cotejo(s, sh) {
   if (!(s && (s.planeado || []).length)) return "";
-  const real = {}; sh.forEach(x => { const sv = x.servicio || {}; (sv.servicios || []).forEach(n => real["svc:" + n] = (real["svc:" + n] || 0) + 1); const h = horasDe(sv); if (h) real.hora = (real.hora || 0) + h; if (sv.distancia) real["dist:" + sv.distancia] = (real["dist:" + sv.distancia] || 0) + 1; if (x.bomba && x.bomba.usada) real.renta_bomba = (real.renta_bomba || 0) + 1; (x.insumos || []).forEach(i => { const it = i.itemId && S.items[i.itemId]; const c = findCat("", i.nombre, it && it.codigo); const k = c ? "ins:" + c.id : "ins:" + norm(i.nombre); real[k] = (real[k] || 0) + +i.cantidad; real["n:" + k] = i.nombre; }); });
+  const real = {}; sh.forEach(x => { const sv = x.servicio || {}; (sv.servicios || []).forEach(n => real["svc:" + n] = (real["svc:" + n] || 0) + 1); const h = horasDe(sv); if (modDe(sv, S.patients[x.patientId]) === "express") { real.express = (real.express || 0) + 1; if (h > 4) real.express_hx = r2((real.express_hx || 0) + h - 4); } else if (h) real.hora = (real.hora || 0) + h; if (sv.distancia) real["dist:" + sv.distancia] = (real["dist:" + sv.distancia] || 0) + 1; if (x.bomba && x.bomba.usada) real.renta_bomba = (real.renta_bomba || 0) + 1; (x.insumos || []).forEach(i => { const it = i.itemId && S.items[i.itemId]; const c = findCat("", i.nombre, it && it.codigo); const k = c ? "ins:" + c.id : "ins:" + norm(i.nombre); real[k] = (real[k] || 0) + +i.cantidad; real["n:" + k] = i.nombre; }); });
   const rows = []; const seen = new Set();
-  s.planeado.forEach(pl => { const c = S.ventas[pl.catId]; const k = planKey(pl, c); seen.add(k); const r = real[k] || 0; rows.push([pl.concepto, pl.cant, r, ["ins:", "svc:", "hora", "dist:", "renta_bomba"].some(p => k.startsWith(p)) ? (r === pl.cant ? "ok" : r > pl.cant ? "warn" : "bad") : "acc"]); });
+  s.planeado.forEach(pl => { const c = S.ventas[pl.catId]; const k = planKey(pl, c); seen.add(k); const r = real[k] || 0; rows.push([pl.concepto, pl.cant, r, ["ins:", "svc:", "hora", "express", "dist:", "renta_bomba"].some(p => k.startsWith(p)) ? (r === pl.cant ? "ok" : r > pl.cant ? "warn" : "bad") : "acc"]); });
   Object.keys(real).filter(k => !k.startsWith("n:") && !seen.has(k)).forEach(k => rows.push([real["n:" + k] || k.replace(/^svc:/, "").replace(/^dist:/, "Trayecto ").replace("hora", "Horas de cuidado").replace("renta_bomba", "Renta de bomba"), 0, real[k], "warn"]));
   const enf = [...new Set(sh.map(x => x.enfermera))];
   return `<div class="sec-t">Cotejo: cotización previa contra lo registrado</div>
@@ -1769,10 +1795,11 @@ function pacientesAdmHTML() {
     const sinCot = sueltos(p.id).filter(s => !pv.some(v => !v.srvId && (!v.desde || s.fecha >= v.desde) && (!v.hasta || s.fecha <= v.hasta))).length;
     return { p, sh, mesN: sh.filter(s => mesDe(s.fecha) === mes).length, vendido, cobrado, saldo: r2(vendido - cobrado), ult, ultDoc, sinCot }; });
   return `<div class="stack">
+    <div class="row between"><p class="small muted" style="margin:0;flex:1;min-width:200px">Registra aquí a un paciente que necesita atención a domicilio: a la enfermera asignada le llega una alerta y ella completa el expediente.</p><button class="btn" id="alta-new">+ Paciente para atención a domicilio</button></div>
     <div class="kpis"><div class="kpi"><b>${rows.filter(r => r.p.estado === "activo").length}</b><span>Pacientes activos</span></div><div class="kpi ${rows.some(r => r.saldo > 0) ? "warn" : "ok"}"><b>${rows.filter(r => r.saldo > 0).length}</b><span>Con saldo pendiente</span></div><div class="kpi ${rows.some(r => r.sinCot) ? "warn" : "ok"}"><b>${rows.filter(r => r.sinCot).length}</b><span>Con atenciones sin cotizar</span></div></div>
     ${rows.length ? `<div class="card stack" style="gap:0;padding:4px 16px">${rows.map(r => `<div class="cl"><div class="cl-h"><span><b>${esc(r.p.nombre)}</b> <span class="pill ${r.p.estado === "activo" ? "ok" : "muted"}">${esc(r.p.estado || "")}</span></span><b class="num">${r.saldo > 0 ? `<span style="color:var(--bad,#B3261E)">Saldo ${money(r.saldo)}</span>` : r.vendido ? "Al corriente" : ""}</b></div>
       <div class="small muted" style="margin-top:2px">${r.mesN} atenciones este mes · última ${r.ult ? fmtD(r.ult.fecha) + " (" + esc(r.ult.enfermera) + ")" : "—"} · vendido ${money(r.vendido)} · cobrado ${money(r.cobrado)}${r.ultDoc ? " · último documento " + esc(r.ultDoc.folio) : ""}</div>
-      <div class="row" style="margin-top:6px">${r.sinCot ? `<span class="pill warn">${r.sinCot} atención(es) sin cerrar ni cotizar</span><button class="btn sm" data-srv-closep="${r.p.id}">Cerrar servicio</button>` : ""}<button class="btn ghost sm" data-adm-cot="${r.p.id}">Cotizar</button>${borrBtn("patients", r.p.id)}</div></div>`).join("")}</div>` : emptyDemo()}
+      <div class="row" style="margin-top:6px">${r.sinCot ? `<span class="pill warn">${r.sinCot} atención(es) sin cerrar ni cotizar</span><button class="btn sm" data-srv-closep="${r.p.id}">Cerrar servicio</button>` : ""}${r.p.porCompletar && r.p.alta ? `<span class="pill warn">Esperando a ${esc(r.p.alta.enfermera)} · ${esc(cuandoTxt(r.p.alta))}</span><button class="btn ghost sm" data-alta-ed="${r.p.id}">Editar alta</button>` : ""}<button class="btn ghost sm" data-adm-cot="${r.p.id}">Cotizar</button>${borrBtn("patients", r.p.id)}</div></div>`).join("")}</div>` : emptyDemo()}
   </div>`;
 }
 document.addEventListener("click", e => { const b = e.target.closest("[data-adm-cot]"); if (b) { admSel.pid = b.dataset.admCot; admTab = "cot"; render(); window.scrollTo(0, 0); } });
@@ -2116,6 +2143,86 @@ document.addEventListener("click", e => {
   const a = e.target.closest("[data-borr-ok]"); if (a) resolverBorrado(a.dataset.borrOk, true);
   const r = e.target.closest("[data-borr-no]"); if (r) resolverBorrado(r.dataset.borrNo, false);
 });
+
+/* ============ ALTA RÁPIDA desde Administración / Dirección → alerta a la enfermera asignada ============ */
+const ALTA_EJ = ["Hidratación (suero)", "Baño y cambio de ropa de cama", "Aplicación de quimioterapia", "Aplicación de medicamento IV", "Aplicación de medicamento IM / SC", "Curación de herida", "Canalización periférica", "Toma de muestras de laboratorio", "Cuidadora 6 h", "Cuidadora 8 h", "Cuidadora 12 h", "Cuidadora 24 h"];
+const altasMias = () => patients().filter(p => p.porCompletar && p.alta && norm(p.alta.enfermera) === norm(APP.user)).sort((a, b) => ((a.alta.fecha || "") + (a.alta.hora || "")).localeCompare((b.alta.fecha || "") + (b.alta.hora || "")));
+const altasPend = () => patients().filter(p => p.porCompletar && p.alta);
+const telMx = t => { t = String(t || "").replace(/\D/g, ""); return t.length === 10 ? "52" + t : t; };
+function cuandoTxt(a) { const d = a.fecha === today() ? "Hoy" : a.fecha === addDays(today(), 1) ? "Mañana" : fmtD(a.fecha); return d + (a.hora ? " a las " + a.hora : ""); }
+function addDays(d, n) { const x = new Date(d + "T12:00:00"); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); }
+function altaMsg(p) { const a = p.alta; return `Hola ${a.enfermera.split(" ").slice(-3)[0] || ""}, se te asignó un servicio de ${modLabel(a.modalidad)} (${a.detalle}).\nPaciente: ${p.nombre}\nCuándo: ${cuandoTxt(a)}\nDirección: ${p.domicilio}\nFamiliar: ${p.responsable} · ${p.telResp}${a.notas ? "\nNotas: " + a.notas : ""}\nYa aparece en tu plataforma de Alleviare para que completes el registro.`; }
+function openAlta(ex) {
+  const a0 = ex ? ex.alta || {} : {};
+  const o = { nombre: ex ? ex.nombre : "", domicilio: ex ? ex.domicilio || "" : "", responsable: ex ? ex.responsable || "" : "", telResp: ex ? ex.telResp || "" : "", fecha: a0.fecha || today(), hora: a0.hora || "", enfermera: a0.enfermera || "", modalidad: a0.modalidad || "express", detalle: a0.detalle || "", notas: a0.notas || "" };
+  const k = bnd(o, () => { });
+  const ns = enfermeras().map(n => n.nombre).sort();
+  modal(`<h2>${ex ? "Editar paciente para atención a domicilio" : "Nuevo paciente para atención a domicilio"}</h2>
+    <p class="small muted">Con estos datos le llega una alerta a la enfermera asignada. Ella completa el expediente durante la visita.</p>
+    <div class="fieldgrid">${F("Nombre del paciente", I(k, o, "nombre", 'autocomplete="off" placeholder="Nombre y apellidos"'), "full")}${F("Dirección", I(k, o, "domicilio", 'placeholder="Calle, número, colonia, municipio"'), "full")}
+      ${F("Fecha del servicio", I(k, o, "fecha", 'type="date"'))}${F("Hora requerida", I(k, o, "hora", 'type="time"'))}
+      ${F("Nombre del familiar", I(k, o, "responsable"))}${F("Celular del familiar", I(k, o, "telResp", 'type="tel" inputmode="tel" placeholder="10 dígitos"'))}</div>
+    <div class="sec-t">Tipo de servicio solicitado</div>
+    <div class="stack" style="gap:8px">${MODALIDADES.map(([id, n, d]) => `<label class="card" style="cursor:pointer;padding:10px 14px"><input type="radio" name="al-mod" value="${id}" data-o="${k}" data-b="modalidad" ${o.modalidad === id ? "checked" : ""}> <b>${esc(n)}</b><div class="small muted">${esc(d)}</div></label>`).join("")}</div>
+    <div class="fieldgrid">${F("Servicio solicitado", I(k, o, "detalle", 'list="al-ej" placeholder="Hidratación, baño, quimioterapia, cuidadora 12 h…"'), "full")}<datalist id="al-ej">${ALTA_EJ.map(x => `<option value="${esc(x)}">`).join("")}</datalist>
+      ${F("Enfermera asignada", SEL(k, o, "enfermera", ns, "Elegir enfermera…"), "full")}${F("Notas para la enfermera (opcional)", TA(k, o, "notas", 'rows="2" placeholder="Indicaciones, material que debe llevar, acceso al domicilio…"'), "full")}</div>
+    <div class="row"><button class="btn" id="al-ok">${ex ? "Guardar cambios" : "Registrar y avisar a la enfermera"}</button><button class="btn quiet" data-close>Cancelar</button></div>`);
+  $("#al-ok").onclick = async () => {
+    const falta = [["nombre", "el nombre del paciente"], ["domicilio", "la dirección"], ["fecha", "la fecha del servicio"], ["hora", "la hora requerida"], ["responsable", "el nombre del familiar"], ["telResp", "el celular del familiar"], ["detalle", "el servicio solicitado"], ["enfermera", "la enfermera asignada"]].find(([f]) => !String(o[f] || "").trim());
+    if (falta) return toast("Falta " + falta[1]);
+    if (String(o.nombre).trim().split(/\s+/).length < 2) return toast("Escribe nombre y apellido del paciente");
+    if (String(o.telResp).replace(/\D/g, "").length < 10) return toast("El celular del familiar debe tener 10 dígitos");
+    const dup = !ex && patients().find(x => norm(x.nombre) === norm(o.nombre));
+    const go2 = async () => {
+      const id = ex ? ex.id : uid("p");
+      const data = { nombre: o.nombre.trim(), domicilio: o.domicilio.trim(), responsable: o.responsable.trim(), telResp: o.telResp.trim(), alta: { fecha: o.fecha, hora: o.hora, enfermera: o.enfermera, modalidad: o.modalidad, detalle: o.detalle.trim(), notas: o.notas.trim() } };
+      $("#al-ok").disabled = true;
+      if (Store.mode === "sb") {
+        try { await SB.rpc("api_paciente_alta", { p_token: SB.token(), p_id: id, p_data: data }); }
+        catch (e) { $("#al-ok").disabled = false; return toast(/ya_completado/.test(e.code) ? "La enfermera ya completó este registro; los cambios se hacen desde su expediente" : /sin_permiso/.test(e.code) ? "No tienes permiso para registrar pacientes" : "No se pudo guardar: " + e.code); }
+        const base = S.patients[id] || { id, estado: "activo", nivel: "intermedio", tipoAtencion: "Primera vez", fechaRegistro: today(), meds: [], indicaciones: [], creadoPor: APP.user, creadoEn: iso() };
+        S.patients[id] = Object.assign(base, data, { porCompletar: true }); S.patients[id].alta.por = APP.user;
+      } else {
+        const p = Object.assign(S.patients[id] || { id, estado: "activo", nivel: "intermedio", tipoAtencion: "Primera vez", fechaRegistro: today(), meds: [], indicaciones: [], creadoPor: APP.user, creadoEn: iso(), audit: [] }, data, { porCompletar: true });
+        p.alta.por = APP.user; p.alta.t = iso(); audit(p, "Alta para visita a domicilio; asignada a " + o.enfermera); Store.put("patients", p);
+      }
+      const p = S.patients[id];
+      modal(`<h2>${ex ? "Cambios guardados" : "Paciente registrado"}</h2>
+        <div class="alert ok"><b>${esc(o.enfermera)}</b> ya lo tiene como alerta en su plataforma (${esc(modLabel(o.modalidad))} · ${esc(cuandoTxt(p.alta))}).</div>
+        <p class="small muted">Si quieres, mándale también el resumen por WhatsApp.</p>
+        <div class="row"><a class="btn ghost" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(altaMsg(p))}">Enviar resumen por WhatsApp</a><button class="btn" data-close>Listo</button></div>`);
+      render();
+    };
+    dup ? confirmBox("Ya existe un paciente llamado " + dup.nombre + ". ¿Registrar otro con el mismo nombre?", go2) : go2();
+  };
+}
+function altasHTML() {
+  const xs = altasMias(); if (!xs.length) return "";
+  const notif = "Notification" in window && Notification.permission === "default";
+  return `<div class="stack"><div class="row between"><div class="sec-t">Nuevos pacientes asignados a mí</div>${notif ? `<button class="link small" id="al-notif">Activar avisos en este celular</button>` : ""}</div>${xs.map(p => { const a = p.alta; return `<div class="card stack" style="border-left:4px solid var(--acc,#B4387A)">
+    <div class="row between"><b>${esc(p.nombre)}</b><span class="pill ${a.modalidad === "express" ? "acc" : "ok"}">${esc(modLabel(a.modalidad))}</span></div>
+    <div><b>${esc(cuandoTxt(a))}</b> · ${esc(a.detalle || "")}</div>
+    <div class="small">${esc(p.domicilio || "")} · <a target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(p.domicilio || "")}">Ver ruta</a></div>
+    <div class="small">Familiar: ${esc(p.responsable || "—")} · <a href="tel:${esc(String(p.telResp || "").replace(/\D/g, ""))}">${esc(p.telResp || "")}</a> · <a target="_blank" rel="noopener" href="https://wa.me/${telMx(p.telResp)}">WhatsApp</a></div>
+    ${a.notas ? `<div class="small muted">Notas: ${esc(a.notas)}</div>` : ""}
+    <div class="small muted">Lo registró ${esc(a.por || "Administración")}${a.t ? " el " + fmtDT(a.t) : ""}</div>
+    <div class="row"><button class="btn sm" data-alta-comp="${p.id}">Completar registro del paciente</button><button class="btn ghost sm" data-go="${goA({ p: "patient", pid: p.id })}">Abrir expediente</button></div></div>`; }).join("")}</div>`;
+}
+function altasAviso() {
+  if (!APP.user) return; const key = "al.altasVistas." + (APP.nid || norm(APP.user)); let vistas = []; try { vistas = JSON.parse(ls(key) || "[]"); } catch (e) { }
+  const nuevas = altasMias().filter(p => !vistas.includes(p.id)); if (!nuevas.length) return;
+  ls(key, JSON.stringify(vistas.concat(nuevas.map(p => p.id)).slice(-200)));
+  const txt = nuevas.length === 1 ? "Nuevo paciente asignado: " + nuevas[0].nombre + " · " + cuandoTxt(nuevas[0].alta) : nuevas.length + " pacientes nuevos asignados a ti";
+  toast(txt);
+  try { if ("Notification" in window && Notification.permission === "granted") new Notification("Alleviare", { body: txt }); } catch (e) { }
+}
+document.addEventListener("click", e => {
+  if (e.target.id === "alta-new") openAlta();
+  const ed = e.target.closest("[data-alta-ed]"); if (ed) openAlta(S.patients[ed.dataset.altaEd]);
+  const c = e.target.closest("[data-alta-comp]"); if (c) { const p = S.patients[c.dataset.altaComp]; newP = Object.assign(blankPatient(), clone(p)); go({ p: "new" }); }
+  if (e.target.id === "al-notif") { try { Notification.requestPermission().then(() => render()); } catch (x) { } }
+  if (e.target.id === "np-cancel") newP = null;
+}, true);
 
 /* ============ logo para PDF ============ */
 let LOGO_PNG = null, LOGO_RATIO = 0.28;

@@ -101,9 +101,10 @@ begin
 end $$;
 
 -- ---------- acceso ----------
-create or replace function public.api_staff_list()
-returns table (id uuid, nombre text) language sql security definer set search_path = public as $$
-  select id, nombre from public.staff where activa and pin_hash <> '' and not es_direccion order by nombre
+drop function if exists public.api_staff_list();
+create function public.api_staff_list()
+returns table (id uuid, nombre text, enf boolean) language sql security definer set search_path = public as $$
+  select id, nombre, 'enfermeria' = any(permisos) from public.staff where activa and pin_hash <> '' and not es_direccion order by nombre
 $$;
 
 create or replace function public.api_register(p_nombre text, p_tipo text, p_cedula text, p_puesto text, p_telefono text, p_fecha date, p_pin text)
@@ -181,7 +182,7 @@ begin
     'docs', coalesce(json_agg(json_build_object('col', d.col, 'id', d.id, 'deleted', d.deleted, 'u', d.updated_at,
       'data', case
         when clinico then d.data
-        when d.col = 'patients' then jsonb_build_object('id', d.data->'id', 'nombre', d.data->'nombre', 'estado', d.data->'estado', 'responsable', d.data->'responsable', 'fechaNac', d.data->'fechaNac', 'domicilio', d.data->'domicilio', 'nivel', d.data->'nivel')
+        when d.col = 'patients' then jsonb_build_object('id', d.data->'id', 'nombre', d.data->'nombre', 'estado', d.data->'estado', 'responsable', d.data->'responsable', 'fechaNac', d.data->'fechaNac', 'domicilio', d.data->'domicilio', 'nivel', d.data->'nivel', 'telResp', d.data->'telResp', 'alta', d.data->'alta', 'porCompletar', d.data->'porCompletar')
         when d.col = 'shifts' then jsonb_build_object('id', d.data->'id', 'patientId', d.data->'patientId', 'fecha', d.data->'fecha', 'turno', d.data->'turno', 'enfermera', d.data->'enfermera', 'servicio', d.data->'servicio', 'insumos', d.data->'insumos', 'bomba', jsonb_build_object('usada', d.data->'bomba'->'usada'), 'cerrado', d.data->'cerrado', 'creadoEn', d.data->'creadoEn', 'updatedAt', d.data->'updatedAt')
         else d.data end)), '[]'::json))
   into out
@@ -360,6 +361,28 @@ begin
   insert into public.bitacora (staff, accion, col, doc_id) values (me.nombre, case when p_autorizar then 'autorizó borrado' else 'rechazó borrado' end, s.col, s.doc_id);
 end $$;
 
+-- ---------- Alta rápida de paciente desde Administración / Dirección (la enfermera asignada completa el expediente) ----------
+create or replace function public.api_paciente_alta(p_token uuid, p_id text, p_data jsonb)
+returns timestamptz language plpgsql security definer set search_path = public, extensions as $$
+declare me public.staff; t timestamptz := clock_timestamp(); ex public.docs; d jsonb;
+begin
+  me := public._me(p_token);
+  if not public._can(me,'administracion') then raise exception 'sin_permiso'; end if;
+  if p_id !~ '^p[a-z0-9_]{3,40}$' or length(trim(coalesce(p_data->>'nombre',''))) < 3 then raise exception 'datos_invalidos'; end if;
+  select * into ex from public.docs where col = 'patients' and id = p_id;
+  if ex.id is not null and (ex.deleted or coalesce(ex.data->>'porCompletar','') <> 'true') then raise exception 'ya_completado'; end if;
+  d := jsonb_build_object('id', p_id, 'nombre', trim(p_data->>'nombre'), 'domicilio', p_data->'domicilio', 'responsable', p_data->'responsable', 'telResp', p_data->'telResp',
+    'alta', jsonb_build_object('fecha', p_data->'alta'->'fecha', 'hora', p_data->'alta'->'hora', 'enfermera', p_data->'alta'->'enfermera', 'modalidad', p_data->'alta'->'modalidad', 'detalle', p_data->'alta'->'detalle', 'notas', p_data->'alta'->'notas', 'por', me.nombre, 't', t),
+    'porCompletar', true, 'estado', 'activo', 'nivel', 'intermedio', 'tipoAtencion', 'Primera vez', 'fechaRegistro', to_char(t at time zone 'America/Mexico_City', 'YYYY-MM-DD'),
+    'meds', '[]'::jsonb, 'indicaciones', '[]'::jsonb, 'creadoPor', me.nombre, 'creadoEn', t,
+    'audit', jsonb_build_array(jsonb_build_object('t', t, 'who', me.nombre, 'what', 'Alta para visita a domicilio; asignada a ' || coalesce(p_data->'alta'->>'enfermera','—'))));
+  if ex.id is not null then d := ex.data || (d - 'audit' - 'creadoPor' - 'creadoEn' - 'fechaRegistro'); end if;
+  insert into public.docs (col, id, data, deleted, updated_at, updated_by) values ('patients', p_id, d, false, t, me.nombre)
+  on conflict (col, id) do update set data = excluded.data, updated_at = t, updated_by = me.nombre;
+  insert into public.bitacora (staff, accion, col, doc_id) values (me.nombre, 'alta de paciente para visita', 'patients', p_id);
+  return t;
+end $$;
+
 -- ---------- Dirección: personal y permisos ----------
 create or replace function public.api_staff_all(p_token uuid)
 returns json language plpgsql security definer set search_path = public, extensions as $$
@@ -414,4 +437,4 @@ grant execute on function public.api_staff_list(), public.api_register(text,text
   public.api_put(uuid,text,text,jsonb), public.api_delete(uuid,text,text), public.api_staff_all(uuid),
   public.api_staff_update(uuid,uuid,boolean,boolean,text[]), public.api_staff_delete(uuid,uuid), public.api_aviso_link(uuid,text), public.api_aviso_get(uuid),
   public.api_aviso_firmar(uuid,text,text,text,boolean,text), public.api_defuncion_enviar(jsonb),
-  public.api_borrado_solicitar(uuid,text,text,text,text), public.api_borrado_list(uuid), public.api_borrado_resolver(uuid,bigint,boolean) to anon, authenticated;
+  public.api_borrado_solicitar(uuid,text,text,text,text), public.api_borrado_list(uuid), public.api_borrado_resolver(uuid,bigint,boolean), public.api_paciente_alta(uuid,text,jsonb) to anon, authenticated;
