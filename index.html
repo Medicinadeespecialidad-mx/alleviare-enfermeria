@@ -158,6 +158,7 @@ tr.click{cursor:pointer;transition:background .12s} tr.click:hover td{background
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 .cl{padding:10px 0;border-bottom:1px solid var(--line)}.cl:last-child{border-bottom:0}.cl.off{opacity:.5}.cl.off .cl-h b:first-child{text-decoration:line-through}.cl-h{display:flex;justify-content:space-between;gap:12px;align-items:baseline}.cl-f{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-top:6px}.cl-f label{display:flex;flex-direction:column;font-size:.7rem;color:var(--muted);gap:2px}.cl-f label{flex:0 0 auto;align-items:flex-start}.cl-f .cell{width:100px!important;min-width:0;padding:6px 8px;font-size:.88rem}.cl-f select.cell{width:auto!important}select.cell{width:auto}.cl-a{margin-left:auto;padding-bottom:6px}.kmoney{font-size:1.5rem!important}.tot{gap:6px}.nb{display:inline-block;min-width:17px;padding:0 5px;border-radius:9px;background:#C0392B;color:#fff;font-size:.66rem;line-height:17px;text-align:center;font-weight:700;margin-left:2px}table.cot td{vertical-align:middle}
 .card.tot{font-family:inherit;font-size:1rem;font-weight:400;color:inherit}.card.tot b{font-size:1.2rem;color:var(--accent)}
+.qa-op{width:100%;background:none;border:0;border-bottom:1px solid var(--line);font:inherit;color:inherit;text-align:left;cursor:pointer;padding:10px 6px!important;border-radius:6px;align-items:center!important}.qa-op.on,.qa-op:hover{background:var(--soft,#F3F1F7)}.qa-new{color:var(--accent)}#qa-res:empty{display:none}
 </style>
 <style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}[hidden]{display:none!important}img{max-width:100%}</style></head><body><script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
@@ -387,7 +388,7 @@ $("#nav").addEventListener("click", e => { const b = e.target.closest("button[da
 const sbVisible = v => !!APP.user && (v === "dir" ? !!APP.dir : can(VIEW_PERM[v]));
 function renderTop() {
   document.querySelectorAll("#nav button").forEach(b => { b.classList.toggle("on", b.dataset.view === APP.view); b.hidden = Store.mode === "sb" && !sbVisible(b.dataset.view); });
-  const ab = document.querySelector('#nav button[data-view="adm"]'); if (ab) { const n = APP.user && isVentas() ? invAlertas().agot.length + invAlertas().bajo.length + invAlertas().cad.length : 0; ab.innerHTML = "Administración" + (n ? ` <span class="nb">${n}</span>` : ""); }
+  const ab = document.querySelector('#nav button[data-view="adm"]'); if (ab) { const n = APP.user && isVentas() ? invAlertas().agot.length + invAlertas().bajo.length + invAlertas().cad.length + notasSinEstatus().length : 0; ab.innerHTML = "Administración" + (n ? ` <span class="nb">${n}</span>` : ""); }
   const eb = document.querySelector('#nav button[data-view="enf"]'); if (eb) { const n = APP.user ? altasMias().length : 0; eb.innerHTML = "Enfermería" + (n ? ` <span class="nb">${n}</span>` : ""); }
   const db = document.querySelector('#nav button[data-view="dir"]'); if (db) { const n = APP.dir && Store.pendBorrado ? Store.pendBorrado.size : 0; db.innerHTML = "Dirección" + (n ? ` <span class="nb">${n}</span>` : ""); }
   $("#nav").hidden = Store.mode === "sb" && !["enf", "coord", "inv", "adm", "dir"].some(sbVisible);
@@ -396,9 +397,12 @@ function renderTop() {
 }
 
 /* ============ render principal ============ */
+let LINK_PID = (location.hash.match(/^#p=([A-Za-z0-9_]+)$/) || [])[1] || "";
+const pacUrl = pid => location.origin + location.pathname + "#p=" + pid;
 function render() {
   BINDS = {}; renderTop();
   const m = $("#main");
+  if (LINK_PID && Store.loaded && APP.user && S.patients[LINK_PID] && (Store.mode !== "sb" || can("enfermeria") || can("coordinacion"))) { const pid = LINK_PID; LINK_PID = ""; try { history.replaceState(null, "", location.pathname); } catch (e) { } APP.view = "enf"; APP.r = views.enf = { p: "patient", pid }; }
   if (!Store.loaded) { m.innerHTML = `<div class="empty">Cargando registros compartidos…</div>`; return; }
   if (Store.mode !== "sb" && APP.nid && Object.keys(S.nurses).length) { const me = S.nurses[APP.nid]; if (!me || me.activa === false || !me.codeHash) { APP.user = ""; APP.nid = ""; ss("al.nid", null); } else { APP.user = me.nombre; APP.cedula = me.cedula || ""; } }
   if (!APP.user && APP.view === "dir") { m.innerHTML = Store.mode === "sb" ? dirLoginHTML() : dirHTML(); bindDirLogin(); return; }
@@ -540,6 +544,7 @@ function dirHTML() {
     </div>`;
   return `<div class="stack">
     <div class="row between"><h1>Dirección</h1><div class="row"><button class="btn sm" id="alta-new">+ Paciente a domicilio</button><button class="btn ghost sm" id="dir-pass">Cambiar mi contraseña</button></div></div>
+    ${isVentas() ? sinEstatusHTML(true) : ""}
     ${borradosHTML()}
     <p class="muted">Autoriza a cada persona registrada y marca a qué secciones entra. Los cambios aplican de inmediato.</p>
     ${(() => { const a = invAlertas(); return a.total || a.sinInv.length ? `<div class="alert warn row between"><span><b>Insumos:</b> ${a.agot.length} agotados, ${a.bajo.length} por terminarse, ${a.cad.length} caducados, ${a.por.length} por caducar${a.sinInv.length ? ` · ${a.sinInv.length} enfermera(s) sin inventario` : ""}.</span><button class="btn sm" id="dir-alr">Ver alertas</button></div>` : ""; })()}
@@ -1319,7 +1324,7 @@ function cotizacion(pid, desde, hasta) {
     if (s.bomba && s.bomba.usada) add("renta_bomba", "Renta de bomba de infusión eléctrica (por turno)", "ren", "turno", 1, findCat("renta_bomba", "Renta de bomba de infusión eléctrica (por turno)"));
   });
   if (srv) (srv.planeado || []).forEach(pl => { const c = S.ventas[pl.catId]; const k = planKey(pl, c); if (lines.some(l => l.key === k)) return; if (sh.length && ["ins:", "svc:", "hora", "express", "dist:", "renta_bomba"].some(x => k.startsWith(x))) return; lines.push({ key: k, concepto: c ? c.nombre : pl.concepto, cat: c ? c.cat : (pl.cat || "otr"), unidad: (c && c.unidad) || "servicio", cant: +pl.cant, pu: c ? precioCat(c) : 0, iva: c ? (c.iva || catOf(c.cat)[3]) : "16", plan: true, auto: true }); });
-  lines.forEach(l => { const a = q.ajustes[l.key]; if (a) { if (a.pu !== "" && a.pu != null) { l.puAuto = l.pu; l.pu = +a.pu; l.ajustado = true; } if (a.cant !== "" && a.cant != null) { l.cantAuto = l.cant; l.cant = +a.cant; l.ajustado = true; } if (a.iva) l.iva = a.iva; if (a.quitar) l.quitar = true; } });
+  lines.forEach(l => { const a = q.ajustes[l.key]; if (a) { if (a.pu !== "" && a.pu != null) { l.puAuto = l.pu; l.pu = +a.pu; l.ajustado = true; } if (a.cant !== "" && a.cant != null) { l.cantAuto = l.cant; l.cant = +a.cant; l.ajustado = true; } if (a.iva) l.iva = a.iva; if (a.unidad) l.unidad = a.unidad; if (a.quitar) l.quitar = true; } });
   (q.extras || []).forEach(x => lines.push({ key: "x:" + x.id, xid: x.id, concepto: x.concepto, cat: x.cat || "otr", unidad: x.unidad || "servicio", cant: +x.cant || 0, pu: +x.pu || 0, iva: x.iva || catOf(x.cat || "otr")[3], extra: true }));
   const act = lines.filter(l => !l.quitar && l.cant);
   const base = { "16": 0, "0": 0, ex: 0 }; act.forEach(l => base[l.iva] = r2((base[l.iva] || 0) + l.cant * l.pu));
@@ -1377,11 +1382,13 @@ function cotHTML(ps) {
   const row = l => `<div class="cl ${l.quitar ? "off" : ""}">
       <div class="cl-h"><span><b>${esc(l.concepto)}</b>${l.extra ? ` <span class="pill acc">agregado</span>` : ""}${l.plan ? ` <span class="pill muted">de la cotización previa</span>` : ""}${l.sinCat && !l.extra ? ` <span class="pill warn">sin catálogo</span>` : ""}${l.ajustado ? ` <span class="pill acc">ajustado</span>` : ""}</span><b class="num">${money(l.cant * l.pu)}</b></div>
       <div class="cl-f"><label>Cant.<input class="cell" type="number" min="0" step="0.5" data-cl="${esc(l.key)}" data-f="cant" value="${l.cant}"></label>
+        <label>Unidad<input class="cell" list="uni-list" data-cl="${esc(l.key)}" data-f="unidad" value="${esc(l.unidad || "")}" style="width:96px!important"></label>
         <label>Precio unit. sin IVA<input class="cell" type="number" min="0" step="0.01" data-cl="${esc(l.key)}" data-f="pu" value="${l.pu || ""}" placeholder="0.00"></label>
         <label>IVA<select class="cell" data-cl="${esc(l.key)}" data-f="iva">${IVAS.map(([v, t]) => `<option value="${v}" ${l.iva === v ? "selected" : ""}>${t}</option>`).join("")}</select></label>
         <span class="cl-a">${l.extra ? `<button class="link small" data-cdel="${l.xid}">quitar</button>` : `<button class="link small" data-cquit="${esc(l.key)}">${l.quitar ? "incluir" : "quitar"}</button>${l.ajustado ? ` · <button class="link small" data-creset="${esc(l.key)}">restablecer${l.puAuto != null ? " (" + money(l.puAuto) + ")" : ""}</button>` : ""}`}</span></div></div>`;
   const psv = Object.values(S.config).filter(x => x.doc === "servicio" && !x.cancelado && x.pid === admSel.pid).sort((a, b) => (b.inicio || "").localeCompare(a.inicio || ""));
-  return `<div class="card fieldgrid">${F("Paciente", `<select id="adm-p">${ps.map(p => `<option value="${p.id}" ${p.id === admSel.pid ? "selected" : ""}>${esc(p.nombre)}</option>`).join("")}</select>`, "full")}
+  const ev = admSel.editVenta && S.ventas[admSel.editVenta];
+  return `${ev ? `<div class="alert warn row between"><span>Editando <b>${esc(ev.folio)}</b>. Al generar el PDF se actualiza este mismo folio (se conservan sus pagos).</span><button class="btn quiet sm" id="ved-x">Salir de edición</button></div>` : ""}<div class="card fieldgrid">${F("Paciente", `<select id="adm-p">${ps.map(p => `<option value="${p.id}" ${p.id === admSel.pid ? "selected" : ""}>${esc(p.nombre)}</option>`).join("")}</select>`, "full")}
     ${F("Cotizar", `<select id="adm-srv"><option value="">Por periodo de fechas</option>${psv.map(s => `<option value="${s.id}" ${s.id === admSel.srv ? "selected" : ""}>Servicio ${esc(s.folio || "")} · ${fmtD(s.inicio)} · ${srvEstado(s)}</option>`).join("")}</select>`, "full")}
     ${c.srv ? "" : F("Desde", `<input type="date" id="adm-d" value="${admSel.desde}">`) + F("Hasta", `<input type="date" id="adm-h" value="${admSel.hasta}">`)}</div>
     ${c.srv ? `<div class="alert ${c.srv.estado === "Cumplido" ? "" : "warn"} small">${c.srv.estado === "Cumplido" ? `Servicio cumplido el ${fmtD(c.srv.cerradoEn)} · ${c.sh.length} atención(es)${c.srv.cotPrevia ? " · con cotización previa: los conceptos que no registra enfermería se toman de la cotización." : "."}` : `Servicio ${srvEstado(c.srv).toLowerCase()}: esta es la <b>cotización previa</b> con lo planeado. Asignada a ${esc(c.srv.enfermera)}. Los insumos se descuentan cuando marques servicio cumplido en la pestaña Servicios.`}</div>` : ""}
@@ -1390,6 +1397,10 @@ function cotHTML(ps) {
     ${sinCat && !sinPrecio ? `<div class="alert">${sinCat} concepto${sinCat > 1 ? "s" : ""} no está${sinCat > 1 ? "n" : ""} en el catálogo y se cotiza${sinCat > 1 ? "n" : ""} con el costo del inventario + ${e.margen} %.</div>` : ""}
     <h2>Conceptos</h2>
     <p class="small muted">Se generan solos con lo que registró la enfermera: servicios, horas, trayecto, insumos y bomba. Puedes ajustar cantidad, precio o IVA de cada renglón, quitarlo o agregar conceptos.</p>
+    <div class="card stack" style="gap:8px;border:1.5px solid var(--accent)"><div class="row" style="flex-wrap:nowrap;gap:8px"><input id="qa-q" type="search" autocomplete="off" placeholder="Agregar producto o servicio: escribe para buscar o crear…" value="${esc(qaTxt)}" style="flex:1;min-width:0"><input id="qa-n" type="number" min="0.5" step="0.5" value="1" inputmode="decimal" title="Cantidad" style="width:70px"></div>
+      <div id="qa-res" class="list">${qaHTML()}</div>
+      <div class="small muted">Busca en el catálogo y el inventario. Si no existe, créalo aquí y queda guardado para las próximas cotizaciones. Enter agrega el primero. <button class="link small" id="cot-add">Concepto libre</button></div></div>
+    <datalist id="uni-list">${UNIDADES.map(u => `<option value="${u}">`).join("")}</datalist>
     ${c.lines.length ? `<div class="card stack" style="gap:0;padding:6px 16px">${grupos.map(g => `<div class="sec-t" style="padding:12px 0 4px">${esc(catOf(g)[1])}</div>` + c.lines.filter(l => l.cat === g).map(row).join("")).join("")}</div>
       <div class="card stack tot">
         ${c.desc ? `<div class="row between"><span>Importe</span><span class="num">${money(c.bruto)}</span></div><div class="row between" style="color:var(--ok,#1E7B4A)"><span>Descuento${(c.q.descuento || {}).modo !== "$" ? " " + +c.q.descuento.valor + " %" : ""}${c.q.descuento.motivo ? `<div class="small muted">${esc(c.q.descuento.motivo)}</div>` : ""}</span><span class="num">−${money(c.desc)}</span></div>` : ""}
@@ -1402,7 +1413,6 @@ function cotHTML(ps) {
       <div class="card stack"><div class="sec-t">Descuento</div>
         <div class="row" style="align-items:flex-end;flex-wrap:wrap">${F("Tipo", `<select data-desc="modo"><option value="%" ${(q.descuento || {}).modo !== "$" ? "selected" : ""}>Porcentaje (%)</option><option value="$" ${(q.descuento || {}).modo === "$" ? "selected" : ""}>Cantidad fija ($)</option></select>`)}${F((q.descuento || {}).modo === "$" ? "Monto antes de IVA" : "Porcentaje", `<input data-desc="valor" type="number" min="0" step="0.01" inputmode="decimal" style="width:120px" value="${esc((q.descuento || {}).valor || "")}" placeholder="0">`)}${F("Motivo (aparece en el documento)", `<input data-desc="motivo" value="${esc((q.descuento || {}).motivo || "")}" placeholder="Paciente recurrente, convenio…">`)}</div>
         <p class="small muted" style="margin:0">Se aplica al importe antes de IVA y se reparte entre todos los conceptos.</p></div>` : `<div class="empty">Sin conceptos en el periodo. Agrega uno abajo o revisa las fechas.</div>`}
-    <div class="row"><button class="btn ghost sm" id="cot-add">+ Agregar concepto</button></div>
     <h2>Datos para el documento</h2>
     <div class="card fieldgrid">
       ${F("Tipo de documento", CHIPS(kc, q, "tipo", ["Cotización", "Nota de venta"]), "full")}
@@ -1421,9 +1431,9 @@ function cotHTML(ps) {
 }
 document.addEventListener("change", e => {
   const el = e.target.closest("[data-cl]"); if (!el) return; const q = cotDoc(admSel.pid); const key = el.dataset.cl, f = el.dataset.f;
-  if (key.startsWith("x:")) { const x = q.extras.find(z => "x:" + z.id === key); if (x) x[f] = f === "iva" ? el.value : +el.value; }
-  else { q.ajustes[key] = q.ajustes[key] || {}; q.ajustes[key][f] = f === "iva" ? el.value : (el.value === "" ? "" : +el.value); }
-  saveCot(q); render();
+  if (key.startsWith("x:")) { const x = q.extras.find(z => "x:" + z.id === key); if (x) x[f] = f === "iva" || f === "unidad" ? el.value : +el.value; }
+  else { q.ajustes[key] = q.ajustes[key] || {}; q.ajustes[key][f] = f === "iva" || f === "unidad" ? el.value : (el.value === "" ? "" : +el.value); }
+  saveCot(q); setTimeout(render, 0);
 });
 document.addEventListener("click", e => {
   const t = e.target.closest("[data-atab]"); if (t) { admTab = t.dataset.atab; render(); return; }
@@ -1434,16 +1444,78 @@ document.addEventListener("click", e => {
   const dl = e.target.closest("[data-cdel]"); if (dl) { const q = cotDoc(admSel.pid); q.extras = q.extras.filter(x => x.id !== dl.dataset.cdel); saveCot(q); render(); }
 });
 document.addEventListener("change", e => { if (e.target.id === "adm-p") { admSel.pid = e.target.value; admSel.srv = ""; render(); } if (e.target.id === "adm-srv") { admSel.srv = e.target.value; const s = S.config[admSel.srv]; if (s) { admSel.desde = s.inicio; admSel.hasta = s.fin || today(); } render(); } if (e.target.id === "adm-d") { admSel.desde = e.target.value; render(); } if (e.target.id === "adm-h") { admSel.hasta = e.target.value; render(); } });
+const UNIDADES = ["servicio", "visita", "hora", "turno", "día", "consulta", "sesión", "pza", "ampolleta", "frasco", "bolsa", "caja", "juego", "km"];
+const UNI_CAT = { med: "pza", sol: "bolsa", ins: "pza", bom: "pza", ren: "día", enf: "servicio", dom: "visita", mes: "consulta", ter: "sesión", otr: "servicio" };
+function unidadSug(cat, concepto) {
+  const t = norm(concepto || "");
+  const r = [[/\bpor hora\b|\bhoras?\b/, "hora"], [/\bturno/, "turno"], [/\bpor dia\b|\bdias?\b|\bdiari/, "día"], [/\bsesion|\bterapia/, "sesión"], [/\bconsulta|\bvaloracion/, "consulta"], [/\bvisita|\btrayecto|\btraslado|\bexpress/, "visita"], [/\bkm\b|kilometr/, "km"], [/\bampolleta|\bamp\b|\bampula/, "ampolleta"], [/\bfrasco|\bvial/, "frasco"], [/\bbolsa|\bsolucion/, "bolsa"], [/\bcaja\b/, "caja"], [/\bkit\b|\bjuego\b|\bequipo de/, "juego"]].find(([re]) => re.test(t));
+  return r ? r[1] : (UNI_CAT[cat] || "servicio");
+}
+const uniInput = (k, o, extra = "") => I(k, o, "unidad", 'list="uni-list" autocomplete="off" ' + extra) + `<datalist id="uni-list">${UNIDADES.map(u => `<option value="${u}">`).join("")}</datalist>`;
 function openCotAdd() {
   const xs = catalogo().sort((a, b) => a.cat.localeCompare(b.cat) || a.nombre.localeCompare(b.nombre));
-  const o = { catId: "", concepto: "", cat: "otr", cant: 1, pu: "", iva: "16", unidad: "servicio" }; const k = bnd(o);
+  const o = { catId: "", concepto: "", cat: "otr", cant: 1, pu: "", iva: "16", unidad: "servicio" }; let uniMan = false;
+  const k = bnd(o, path => { if (path === "unidad") { uniMan = !!String(o.unidad).trim(); return; } if ((path === "cat" || path === "concepto") && !uniMan) { o.unidad = unidadSug(o.cat, o.concepto); const u = $("#ca-uni"); if (u) u.value = o.unidad; } if (path === "cat") { o.iva = catOf(o.cat)[3]; const s = document.querySelector('#modal-root select[data-b="iva"]'); if (s) s.value = o.iva; } });
   modal(`<h2>Agregar concepto</h2>
     ${xs.length ? F("Del catálogo", `<select id="ca-cat"><option value="">Elegir…</option>${CATS.map(cg => { const ys = xs.filter(x => x.cat === cg[0]); return ys.length ? `<optgroup label="${esc(cg[1])}">${ys.map(x => `<option value="${x.id}">${esc(x.nombre)} · ${money(precioCat(x))}</option>`).join("")}</optgroup>` : ""; }).join("")}</select>`) : ""}
-    <div class="fieldgrid">${F("Concepto", I(k, o, "concepto", 'id="ca-con" placeholder="Ej. Consulta de médico especialista a domicilio"'), "full")}${F("Categoría", SEL(k, o, "cat", CATS.map(c => [c[0], c[1]])))}${F("Unidad", I(k, o, "unidad"))}${F("Cantidad", I(k, o, "cant", 'type="number" min="0" step="0.5"'))}${F("Precio unitario sin IVA", I(k, o, "pu", 'id="ca-pu" type="number" min="0" step="0.01"'))}${F("IVA", SEL(k, o, "iva", IVAS))}</div>
+    <div class="fieldgrid">${F("Concepto", I(k, o, "concepto", 'id="ca-con" placeholder="Ej. Consulta de médico especialista a domicilio"'), "full")}${F("Categoría", SEL(k, o, "cat", CATS.map(c => [c[0], c[1]])))}${F("Unidad", uniInput(k, o, 'id="ca-uni"'))}${F("Cantidad", I(k, o, "cant", 'type="number" min="0" step="0.5"'))}${F("Precio unitario sin IVA", I(k, o, "pu", 'id="ca-pu" type="number" min="0" step="0.01"'))}${F("IVA", SEL(k, o, "iva", IVAS))}</div>
     <div class="row"><button class="btn" id="ca-ok">Agregar</button><button class="btn quiet" data-close>Cancelar</button></div>`);
-  const sel = $("#ca-cat"); if (sel) sel.onchange = () => { const c = S.ventas[sel.value]; if (!c) return; Object.assign(o, { catId: c.id, concepto: c.nombre, cat: c.cat, unidad: c.unidad || "servicio", pu: precioCat(c), iva: c.iva || catOf(c.cat)[3] }); $("#ca-con").value = o.concepto; $("#ca-pu").value = o.pu; document.querySelector('#modal-root select[data-b="cat"]').value = o.cat; document.querySelector('#modal-root select[data-b="iva"]').value = o.iva; document.querySelector('#modal-root input[data-b="unidad"]').value = o.unidad; };
-  $("#ca-ok").onclick = () => { if (!String(o.concepto).trim()) return toast("Escribe el concepto"); const q = cotDoc(admSel.pid); q.extras = q.extras || []; q.extras.push({ id: uid("x"), catId: o.catId, concepto: o.concepto.trim(), cat: o.cat || "otr", unidad: o.unidad, cant: +o.cant || 1, pu: +o.pu || 0, iva: o.iva || "16", por: APP.user, t: iso() }); saveCot(q); closeModal(); render(); toast("Concepto agregado"); };
+  const sel = $("#ca-cat"); if (sel) sel.onchange = () => { const c = S.ventas[sel.value]; if (!c) return; Object.assign(o, { catId: c.id, concepto: c.nombre, cat: c.cat, unidad: c.unidad || unidadSug(c.cat, c.nombre), pu: precioCat(c), iva: c.iva || catOf(c.cat)[3] }); uniMan = false; $("#ca-con").value = o.concepto; $("#ca-pu").value = o.pu; document.querySelector('#modal-root select[data-b="cat"]').value = o.cat; document.querySelector('#modal-root select[data-b="iva"]').value = o.iva; document.querySelector('#modal-root input[data-b="unidad"]').value = o.unidad; };
+  $("#ca-ok").onclick = () => { if (!String(o.concepto).trim()) return toast("Escribe el concepto"); if (!o.catId) { const c0 = findCat("", o.concepto) || catNuevo(o.concepto, o.cat || "otr", o.unidad || unidadSug(o.cat, o.concepto), +o.pu || "", o.iva); o.catId = c0.id; } const q = cotDoc(admSel.pid); q.extras = q.extras || []; q.extras.push({ id: uid("x"), catId: o.catId, concepto: o.concepto.trim(), cat: o.cat || "otr", unidad: o.unidad, cant: +o.cant || 1, pu: +o.pu || 0, iva: o.iva || "16", por: APP.user, t: iso() }); saveCot(q); closeModal(); render(); toast("Concepto agregado"); };
 }
+
+/* --- agregar producto o servicio rápido (estilo punto de venta) --- */
+function catGuess(nombre) {
+  const t = norm(nombre || "");
+  const r = [[/\bkit\b|\bequipo de\b|jeringa|gasa|cateter|catéter|aguja|sonda|guante|aposito|venoclisis|llave de 3|tegaderm|micropore|torunda|alcohol|parche|bolsa recolectora|cubrebocas|electrodo/, "ins"], [/elastomer/, "bom"], [/\brenta\b|concentrador|cama hospital|silla de ruedas|tanque/, "ren"], [/consulta|valoracion medica|medico|médico|especialista/, "mes"], [/terapia|sesion|fisio|nutri|psicolog/, "ter"], [/solucion|suero|salina|hartmann|glucosad|fisiologica/, "sol"], [/\bmg\b|\bml\b|ampolleta|tableta|capsula|\bamp\b|frasco ampula|morfina|ondansetron|ketorolaco|omeprazol|ceftriaxona|dexametasona|haloperidol|midazolam|buprenorfina/, "med"], [/traslado|trayecto|\bvisita\b|\bkm\b|kilometr/, "dom"], [/hora|turno|aplicacion|curacion|canalizacion|enfermer|bano|baño|cuidad|express|hidratacion|quimioterapia/, "enf"]].find(([re]) => re.test(t));
+  return r ? r[1] : "otr";
+}
+function catNuevo(nombre, cat, unidad, pu, iva, extra) {
+  const m = catOf(cat)[2]; const c = Object.assign({ id: "cat_" + uid("c").slice(-10), doc: "cat", nombre: nombre.trim(), cat, unidad, clave: "", codigo: "", iva: iva || catOf(cat)[3], costo: "", margen: "", precioFinal: "", honorario: "", cuota: "", precio: "", creadoPor: APP.user, creadoEn: iso() }, extra || {});
+  if (m === "producto" || m === "servicio") c.precioFinal = pu; else c.precio = pu;
+  Store.put("ventas", c); return c;
+}
+function qaOpciones(txt) {
+  const t = norm(txt); if (t.length < 2) return [];
+  const toks = t.split(" "); const hit = s => { const w = norm(s); return toks.every(k => w.includes(k)); };
+  const cs = catalogo().filter(c => hit(c.nombre) || (c.codigo && c.codigo === txt.trim())).map(c => ({ tipo: "cat", id: c.id, nombre: c.nombre, unidad: c.unidad || unidadSug(c.cat, c.nombre), pu: precioCat(c), cat: c.cat }));
+  const its = [...new Map(Object.values(S.items).filter(i => (hit(i.nombre) || (i.codigo && i.codigo === txt.trim())) && !findCat("", i.nombre, i.codigo)).map(i => [norm(i.nombre), i])).values()].map(i => ({ tipo: "item", id: i.id, nombre: i.nombre, unidad: i.unidad || "pza", pu: +i.precio ? Math.ceil(+i.precio * (1 + empresa().margen / 100)) : 0, cat: catFromItem(i) }));
+  return cs.concat(its).sort((a, b) => (norm(a.nombre).startsWith(t) ? 0 : 1) - (norm(b.nombre).startsWith(t) ? 0 : 1) || a.nombre.localeCompare(b.nombre)).slice(0, 8);
+}
+let qaTxt = "", qaSel = 0;
+function qaHTML() {
+  const ops = qaOpciones(qaTxt); const exacto = ops.some(o => norm(o.nombre) === norm(qaTxt));
+  return `${ops.map((o, i) => `<button type="button" class="it qa-op ${i === qaSel ? "on" : ""}" data-qa="${o.tipo}:${o.id}"><span><b>${esc(o.nombre)}</b><span class="small muted"> · ${esc(catOf(o.cat)[1])}${o.tipo === "item" ? " · del inventario" : ""}</span></span><span class="num">${o.pu ? money(o.pu) + " / " + esc(o.unidad) : `<span class="pill warn">sin precio</span>`}</span></button>`).join("")}
+    ${norm(qaTxt).length >= 3 && !exacto ? `<button type="button" class="it qa-op qa-new" data-qa-new="1"><span>+ Crear <b>“${esc(qaTxt.trim())}”</b> y guardarlo para otras cotizaciones</span></button>` : ""}`;
+}
+function qaAgregar(o) {
+  const n = +($("#qa-n") || {}).value || 1; const q = cotDoc(admSel.pid); q.extras = q.extras || [];
+  let c = o.tipo === "cat" ? S.ventas[o.id] : null;
+  if (o.tipo === "item") { const it = S.items[o.id]; c = catNuevo(it.nombre, catFromItem(it), it.unidad || "pza", "", "", { costo: it.precio || "", codigo: it.codigo || "" }); }
+  const ex = q.extras.find(x => c && x.catId === c.id);
+  if (ex) ex.cant = r2((+ex.cant || 0) + n); else q.extras.push({ id: uid("x"), catId: c.id, concepto: c.nombre, cat: c.cat, unidad: c.unidad || unidadSug(c.cat, c.nombre), cant: n, pu: precioCat(c), iva: c.iva || catOf(c.cat)[3], por: APP.user, t: iso() });
+  saveCot(q); qaTxt = ""; qaSel = 0; render(); setTimeout(() => { const i = $("#qa-q"); if (i) i.focus(); }, 30);
+  toast((ex ? "Cantidad actualizada: " : "Agregado: ") + c.nombre + (precioCat(c) ? "" : " · captura su precio"));
+}
+function qaCrear() {
+  const nombre = qaTxt.trim(); const cat = catGuess(nombre); const o = { nombre, cat, unidad: unidadSug(cat, nombre), pu: "", iva: catOf(cat)[3] }; let uniMan = false;
+  const k = bnd(o, p => { if (p === "unidad") uniMan = true; if (p === "cat") { o.iva = catOf(o.cat)[3]; $('#modal-root select[data-b="iva"]').value = o.iva; if (!uniMan) { o.unidad = unidadSug(o.cat, o.nombre); $("#qn-uni").value = o.unidad; } } });
+  modal(`<h2>Nuevo producto o servicio</h2><p class="small muted">Se guarda en el catálogo y queda disponible para todas las cotizaciones.</p>
+    <div class="fieldgrid">${F("Nombre", I(k, o, "nombre"), "full")}${F("Categoría", SEL(k, o, "cat", CATS.map(c => [c[0], c[1]])), "full")}${F("Unidad", uniInput(k, o, 'id="qn-uni"'))}${F("Precio al cliente sin IVA", I(k, o, "pu", 'id="qn-pu" type="number" min="0" step="0.01" inputmode="decimal"'))}${F("IVA", SEL(k, o, "iva", IVAS))}</div>
+    <div class="row"><button class="btn" id="qn-ok">Guardar y agregar</button><button class="btn quiet" data-close>Cancelar</button></div>`);
+  setTimeout(() => $("#qn-pu").focus(), 30);
+  $("#qn-ok").onclick = () => { if (!String(o.nombre).trim()) return toast("Escribe el nombre"); if (findCat("", o.nombre)) return toast("Ya existe en el catálogo con ese nombre"); const c = catNuevo(o.nombre, o.cat, o.unidad || unidadSug(o.cat, o.nombre), +o.pu || "", o.iva); closeModal(); qaAgregar({ tipo: "cat", id: c.id }); };
+}
+document.addEventListener("input", e => { if (e.target.id === "qa-q") { qaTxt = e.target.value; qaSel = 0; $("#qa-res").innerHTML = qaHTML(); } });
+document.addEventListener("keydown", e => {
+  if (e.target.id !== "qa-q") return; const ops = qaOpciones(qaTxt);
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); qaSel = Math.max(0, Math.min(ops.length - 1, qaSel + (e.key === "ArrowDown" ? 1 : -1))); $("#qa-res").innerHTML = qaHTML(); }
+  if (e.key === "Enter") { e.preventDefault(); if (ops[qaSel]) qaAgregar(ops[qaSel]); else if (norm(qaTxt).length >= 3) qaCrear(); }
+});
+document.addEventListener("click", e => {
+  const b = e.target.closest("[data-qa]"); if (b) { const [tipo, id] = b.dataset.qa.split(":"); qaAgregar({ tipo, id }); }
+  if (e.target.closest("[data-qa-new]")) qaCrear();
+});
 
 /* --- catálogo --- */
 let catFilter = "";
@@ -1476,11 +1548,11 @@ document.addEventListener("click", e => {
 function openCat(id, pre) {
   const ex = id ? S.ventas[id] : null; const em = empresa();
   const o = ex ? clone(ex) : Object.assign({ doc: "cat", nombre: "", cat: "ins", unidad: "pza", codigo: "", costo: "", margen: "", precioFinal: "", honorario: "", cuota: "", precio: "", iva: "" }, pre || {});
-  if (!o.iva) o.iva = catOf(o.cat)[3];
+  if (!o.iva) o.iva = catOf(o.cat)[3]; let uniMan = !!ex;
   const draw = () => {
-    const k = bnd(o, (path) => { if (path === "cat") { o.iva = catOf(o.cat)[3]; draw(); } else upd(); }); const m = catOf(o.cat)[2];
+    const k = bnd(o, (path) => { if (path === "unidad") { uniMan = !!String(o.unidad).trim(); return; } if (path === "cat") { o.iva = catOf(o.cat)[3]; if (!uniMan) o.unidad = unidadSug(o.cat, o.nombre); draw(); } else { if (path === "nombre" && !uniMan) { o.unidad = unidadSug(o.cat, o.nombre); const u = $("#cat-uni"); if (u) u.value = o.unidad; } upd(); } }); const m = catOf(o.cat)[2];
     modal(`<h2>${ex ? "Editar concepto" : "Nuevo concepto"}</h2>
-      <div class="fieldgrid">${F("Concepto", I(k, o, "nombre", 'placeholder="Ej. Bomba elastomérica 100 ml"'), "full")}${F("Categoría", SEL(k, o, "cat", CATS.map(c => [c[0], c[1]])), "full")}${F("Unidad", I(k, o, "unidad", 'placeholder="pza, amp, hora, visita, turno"'))}${m === "producto" ? F("Código de barras (opcional)", I(k, o, "codigo", 'inputmode="numeric"')) : ""}
+      <div class="fieldgrid">${F("Concepto", I(k, o, "nombre", 'placeholder="Ej. Bomba elastomérica 100 ml"'), "full")}${F("Categoría", SEL(k, o, "cat", CATS.map(c => [c[0], c[1]])), "full")}${F("Unidad", uniInput(k, o, 'id="cat-uni"'))}${m === "producto" ? F("Código de barras (opcional)", I(k, o, "codigo", 'inputmode="numeric"')) : ""}
       ${m === "producto" ? F("Costo de compra (sin IVA)", I(k, o, "costo", 'type="number" min="0" step="0.01" inputmode="decimal"')) + F(`Margen % (general ${em.margen} %)`, I(k, o, "margen", `type="number" min="0" step="1" placeholder="${em.margen}"`)) + `<div class="f full"><span>Precio sugerido</span><div class="kpi" style="padding:10px 14px"><b id="cat-sug" style="font-size:1.3rem"></b></div></div>` + F("Precio final ajustado (opcional)", I(k, o, "precioFinal", 'type="number" min="0" step="0.01" placeholder="Deja vacío para usar el sugerido"'), "full") : ""}
       ${m === "servicio" ? F("Honorario del profesional", I(k, o, "honorario", 'type="number" min="0" step="0.01" inputmode="decimal" placeholder="Lo que se paga a la enfermera / médico / terapeuta"')) + F("Cuota Alleviare", I(k, o, "cuota", 'type="number" min="0" step="0.01" inputmode="decimal" placeholder="Lo que cobra la empresa"')) + F("Precio final ajustado (opcional)", I(k, o, "precioFinal", 'type="number" min="0" step="0.01" placeholder="Deja vacío para sumar honorario + cuota"'), "full") : ""}
       ${m === "renta" || m === "simple" ? F(m === "renta" ? "Precio de renta (por turno o día)" : "Precio", I(k, o, "precio", 'type="number" min="0" step="0.01" inputmode="decimal"')) : ""}
@@ -1515,11 +1587,11 @@ function seedCatalog() {
 /* --- empresa, cuentas y ligas --- */
 function empresaHTML() {
   const e = empresa(); const k = bnd(e, () => saveSoon("ventas", Object.assign(e, { id: "empresa" }), 700));
-  const falta = ["razon", "rfc"].filter(f => !String(e[f] || "").trim());
+  const falta = ["razon"].filter(f => !String(e[f] || "").trim());
   return `<div class="stack">
     ${falta.length ? `<div class="alert warn">Falta ${falta.map(f => ({ razon: "la razón social", rfc: "el RFC" })[f]).join(" y ")}: aparecen en cada cotización y nota de venta.</div>` : ""}
     <div class="card stack"><div class="sec-t">Datos del emisor (aparecen en el PDF)</div><div class="fieldgrid">
-      ${F("Razón social", I(k, e, "razon", 'placeholder="Como aparece en la Constancia de Situación Fiscal"'), "full")}${F("Nombre comercial", I(k, e, "comercial"))}${F("RFC", I(k, e, "rfc", 'style="text-transform:uppercase"'))}${F("Régimen fiscal", I(k, e, "regimen", 'placeholder="Ej. 601 General de Ley Personas Morales"'), "full")}
+      ${F("Razón social", I(k, e, "razon", 'placeholder="Como aparece en la Constancia de Situación Fiscal"'), "full")}${F("Nombre comercial", I(k, e, "comercial"))}${F("RFC (solo para facturar; no se imprime)", I(k, e, "rfc", 'style="text-transform:uppercase"'))}${F("Régimen fiscal", I(k, e, "regimen", 'placeholder="Ej. 601 General de Ley Personas Morales"'), "full")}
       ${F("Calle y número", I(k, e, "calle"))}${F("Colonia", I(k, e, "colonia"))}${F("Código postal", I(k, e, "cp", 'inputmode="numeric"'))}${F("Ciudad", I(k, e, "ciudad"))}${F("Estado", I(k, e, "estado"))}
       ${F("Teléfono", I(k, e, "tel", 'type="tel"'))}${F("Correo", I(k, e, "correo", 'type="email"'))}${F("Sitio web", I(k, e, "web"))}
       ${F("Aviso de funcionamiento / licencia sanitaria (COFEPRIS)", I(k, e, "avisoFunc", 'placeholder="Número, si aplica"'), "full")}
@@ -1578,52 +1650,80 @@ async function reabastoPDF() {
 
 /* --- PDF de cotización / nota de venta y envío al paciente --- */
 function cotPDFBlob(c, folio) {
-  const { jsPDF } = window.jspdf; const doc = new jsPDF({ unit: "pt", format: "letter" }); const W = doc.internal.pageSize.getWidth(), M = 40; const e = empresa(); const q = c.q;
+  const { jsPDF } = window.jspdf; const doc = new jsPDF({ unit: "pt", format: "letter" }); const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight(), M = 46; const e = empresa(); const q = c.q;
+  const NAVY = [27, 42, 65], INK = [44, 52, 64], GRAY = [107, 114, 128], LINE = [209, 213, 219], SOFT = [244, 245, 247], GOLD = [176, 141, 87];
   const pz = v => String(v ?? "").replace(/[₂−✓✕]/g, "");
-  const tipo = (q.tipo || "Cotización").toUpperCase();
-  pdfHeader(doc, tipo, `Folio ${folio} · ${fmtD(today())}`);
-  let y = 92; doc.setFontSize(8.5); doc.setTextColor(45, 43, 66);
-  const emisor = [e.razon || e.comercial, e.razon && e.comercial ? "Nombre comercial: " + e.comercial : "", "RFC: " + (e.rfc || "—") + (e.regimen ? " · Régimen: " + e.regimen : ""), `${e.calle}, Col. ${e.colonia}, C.P. ${e.cp}, ${e.ciudad}, ${e.estado}, México`, [e.tel && "Tel. " + e.tel, e.correo, e.web].filter(Boolean).join(" · "), e.avisoFunc ? "Aviso de funcionamiento / licencia sanitaria: " + e.avisoFunc : ""].filter(Boolean);
-  const cl = q.cliente || {}; const cliente = ["Cliente: " + (cl.nombre || c.p.responsable || c.p.nombre), "RFC: " + (cl.rfc ? cl.rfc.toUpperCase() : "XAXX010101000 (público en general)"), cl.domicilio || c.p.domicilio ? "Domicilio: " + (cl.domicilio || c.p.domicilio) : "", [cl.tel && "Tel. " + cl.tel, cl.correo].filter(Boolean).join(" · "), "Paciente: " + c.p.nombre, "Periodo de atención: " + fmtD(admSel.desde) + " al " + fmtD(admSel.hasta)].filter(Boolean);
-  doc.setFont("helvetica", "bold"); doc.text("EMISOR", M, y); doc.text("CLIENTE", W / 2 + 10, y); doc.setFont("helvetica", "normal"); y += 12;
-  const h = Math.max(emisor.length, cliente.length);
-  for (let i = 0; i < h; i++) { if (emisor[i]) doc.text(doc.splitTextToSize(pz(emisor[i]), W / 2 - M - 10)[0], M, y); if (cliente[i]) doc.text(doc.splitTextToSize(pz(cliente[i]), W / 2 - M - 10)[0], W / 2 + 10, y); y += 11; }
-  if (q.tipo !== "Nota de venta") { doc.setTextColor(110); doc.text(`Vigencia: ${e.vigencia} días naturales (hasta el ${fmtD(ymd(new Date(Date.now() + e.vigencia * 864e5)))})`, M, y + 2); doc.setTextColor(45, 43, 66); y += 10; }
-  const body = []; CATS.forEach(cg => { const ls = c.act.filter(l => l.cat === cg[0]); if (!ls.length) return; body.push([{ content: cg[1], colSpan: 6, styles: { fillColor: [251, 234, 243], fontStyle: "bold" } }]); ls.forEach(l => body.push([String(l.cant), l.unidad || "", pz(l.concepto), money(l.pu), ivaTxt(l.iva), money(l.cant * l.pu)])); });
-  doc.autoTable({ startY: y + 6, margin: { left: M, right: M }, theme: "grid", styles: { fontSize: 8.5, cellPadding: 4, lineColor: [236, 228, 230], lineWidth: .4, textColor: [45, 43, 66] }, headStyles: { fillColor: [239, 239, 249], textColor: [70, 72, 130], fontStyle: "bold" }, head: [["Cant.", "Unidad", "Concepto", "P. unitario", "IVA", "Importe"]], body, columnStyles: { 0: { halign: "right", cellWidth: 38 }, 1: { cellWidth: 50 }, 3: { halign: "right", cellWidth: 72 }, 4: { cellWidth: 52 }, 5: { halign: "right", cellWidth: 76 } } });
-  const tot = c.desc ? [["Importe", money(c.bruto)], [descTxt(c), "-" + money(c.desc)], ["Subtotal", money(c.sub)]] : [["Subtotal", money(c.sub)]]; if (c.base["0"]) tot.push(["Base tasa 0 %", money(c.base["0"])]); if (c.base.ex) tot.push(["Base exenta", money(c.base.ex)]); tot.push(["IVA 16 %", money(c.iva)]); tot.push(["TOTAL", money(c.total)]);
-  doc.autoTable({ startY: doc.lastAutoTable.finalY + 4, margin: { left: W - M - 220, right: M }, theme: "plain", styles: { fontSize: 9, cellPadding: 3, textColor: [45, 43, 66] }, body: tot.map(([a, b], i) => i === tot.length - 1 ? [{ content: a, styles: { fontStyle: "bold" } }, { content: b, styles: { fontStyle: "bold", halign: "right" } }] : [a, { content: b, styles: { halign: "right" } }]) });
-  y = doc.lastAutoTable.finalY + 6; doc.setFontSize(8.5); doc.text("Importe con letra: " + numLetra(c.total), M, y); y += 16;
-  // forma de pago
+  const nota = q.tipo === "Nota de venta"; const tipo = nota ? "NOTA DE VENTA" : "COTIZACIÓN";
+  const vig = !nota ? fmtD(ymd(new Date(Date.now() + e.vigencia * 864e5))) : "";
+  // encabezado
+  if (LOGO_PNG) doc.addImage(LOGO_PNG, "JPEG", M, 30, 140, 140 * LOGO_RATIO); else { doc.setFont("times", "normal"); doc.setFontSize(22); doc.setTextColor(...NAVY); doc.text(e.comercial || "Alleviare", M, 58); }
+  doc.setFont("times", "bold"); doc.setFontSize(20); doc.setTextColor(...NAVY); doc.text(tipo, W - M, 50, { align: "right", charSpace: 1.5 });
+  const meta = [["Folio", folio], ["Fecha", fmtD(today())]].concat(nota ? [] : [["Válida hasta", vig]]);
+  doc.setFontSize(8.5); let my = 66; meta.forEach(([a, b]) => { doc.setFont("helvetica", "normal"); doc.setTextColor(...GRAY); doc.text(a.toUpperCase(), W - M - 92, my, { align: "right", charSpace: .4 }); doc.setFont("helvetica", "bold"); doc.setTextColor(...INK); doc.text(String(b), W - M, my, { align: "right" }); my += 12; });
+  let y = Math.max(my, 30 + 140 * LOGO_RATIO) + 8;
+  doc.setDrawColor(...NAVY); doc.setLineWidth(1.4); doc.line(M, y, W - M, y); doc.setDrawColor(...GOLD); doc.setLineWidth(.6); doc.line(M, y + 3, W - M, y + 3); y += 20;
+  // emisor y cliente
+  const cl = q.cliente || {}; const colW = (W - 2 * M - 16) / 2;
+  const emisor = [[e.razon || e.comercial || "Alleviare", true], e.razon && e.comercial && e.comercial !== e.razon ? [e.comercial] : null, [`${e.calle}, Col. ${e.colonia}`], [`C.P. ${e.cp}, ${e.ciudad}, ${e.estado}`], [[e.tel && "Tel. " + e.tel, e.correo].filter(Boolean).join(" · ")], e.web ? [e.web] : null, e.avisoFunc ? ["Licencia sanitaria: " + e.avisoFunc] : null].filter(x => x && x[0]);
+  const cliente = [[cl.nombre || c.p.responsable || c.p.nombre, true], cl.rfc ? ["RFC " + cl.rfc.toUpperCase()] : null, cl.domicilio || c.p.domicilio ? [cl.domicilio || c.p.domicilio] : null, [[cl.tel && "Tel. " + cl.tel, cl.correo].filter(Boolean).join(" · ")], ["Paciente: " + c.p.nombre], ["Periodo: " + fmtD(admSel.desde) + " al " + fmtD(admSel.hasta)]].filter(x => x && x[0]);
+  const wrap = xs => xs.flatMap(([t, b]) => doc.splitTextToSize(pz(t), colW - 24).map(l => [l, b]));
+  const eL = wrap(emisor), cL = wrap(cliente); const bh = 30 + Math.max(eL.length, cL.length) * 11.5;
+  [[M, "EMITE", eL], [M + colW + 16, "CLIENTE", cL]].forEach(([x, lab, ls]) => {
+    doc.setFillColor(...SOFT); doc.setDrawColor(...LINE); doc.setLineWidth(.5); doc.roundedRect(x, y, colW, bh, 4, 4, "FD");
+    doc.setFillColor(...NAVY); doc.rect(x, y + 6, 2.5, bh - 12, "F");
+    doc.setFont("helvetica", "bold"); doc.setFontSize(7.5); doc.setTextColor(...GOLD); doc.text(lab, x + 14, y + 16, { charSpace: 1.2 });
+    let yy = y + 30; ls.forEach(([l, b]) => { doc.setFont("helvetica", b ? "bold" : "normal"); doc.setFontSize(b ? 9.5 : 8.5); doc.setTextColor(...(b ? NAVY : INK)); doc.text(l, x + 14, yy); yy += 11.5; });
+  });
+  y += bh + 14;
+  // conceptos
+  const body = []; CATS.forEach(cg => { const ls = c.act.filter(l => l.cat === cg[0]); if (!ls.length) return; body.push([{ content: cg[1].toUpperCase(), colSpan: 6, styles: { halign: "left", fillColor: SOFT, textColor: NAVY, fontStyle: "bold", fontSize: 7.5, cellPadding: { top: 5, bottom: 4, left: 6, right: 6 } } }]); ls.forEach(l => body.push([String(l.cant), l.unidad || "", pz(l.concepto), money(l.pu), ivaTxt(l.iva), money(l.cant * l.pu)])); });
+  doc.autoTable({ startY: y, margin: { left: M, right: M, bottom: 50, top: 50 }, rowPageBreak: "avoid", theme: "plain", styles: { font: "helvetica", fontSize: 8.5, cellPadding: { top: 5, bottom: 5, left: 6, right: 6 }, textColor: INK, lineColor: LINE, lineWidth: { bottom: .4 } }, headStyles: { fillColor: NAVY, textColor: [255, 255, 255], fontStyle: "bold", fontSize: 7.5, lineWidth: 0 }, head: [["CANT.", "UNIDAD", "CONCEPTO", "P. UNITARIO", "IVA", "IMPORTE"]], body, columnStyles: { 0: { halign: "right", cellWidth: 40 }, 1: { cellWidth: 58 }, 3: { halign: "right", cellWidth: 72 }, 4: { cellWidth: 50, textColor: GRAY }, 5: { halign: "right", cellWidth: 76 } }, didParseCell: d => { if (d.section === "head" && [0, 3, 5].includes(d.column.index)) d.cell.styles.halign = "right"; } });
+  // totales
+  const tot = c.desc ? [["Importe", money(c.bruto)], [descTxt(c), "- " + money(c.desc)], ["Subtotal", money(c.sub)]] : [["Subtotal", money(c.sub)]]; if (c.base["0"]) tot.push(["Base tasa 0 %", money(c.base["0"])]); if (c.base.ex) tot.push(["Base exenta", money(c.base.ex)]); tot.push(["IVA 16 %", money(c.iva)]);
+  doc.autoTable({ startY: doc.lastAutoTable.finalY + 8, margin: { left: W - M - 240, right: M }, theme: "plain", styles: { fontSize: 8.5, cellPadding: { top: 3, bottom: 3, left: 6, right: 6 }, textColor: INK }, columnStyles: { 0: { textColor: GRAY }, 1: { halign: "right" } }, body: tot.concat([["TOTAL MXN", money(c.total)]]), didParseCell: d => { if (d.row.index === tot.length) { d.cell.styles.fillColor = NAVY; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold"; d.cell.styles.fontSize = 10.5; d.cell.styles.cellPadding = { top: 7, bottom: 7, left: 8, right: 8 }; } } });
+  y = doc.lastAutoTable.finalY + 12; doc.setFont("helvetica", "italic"); doc.setFontSize(8); doc.setTextColor(...GRAY); doc.splitTextToSize("Importe con letra: " + numLetra(c.total), W - 2 * M).forEach(l => { doc.text(l, W - M, y, { align: "right" }); y += 10; }); doc.setFont("helvetica", "normal"); y += 10;
+  // forma de pago y notas
   const pg = q.pago || {}; const cta = e.cuentas.find(x => x.id === pg.cuentaId); const liga = pg.ligaUrl || (e.ligas.find(x => x.id === pg.ligaId) || {}).url;
-  doc.setFont("helvetica", "bold"); doc.text("FORMA DE PAGO: " + (pg.metodo || "—").toUpperCase(), M, y); doc.setFont("helvetica", "normal"); y += 12;
-  if (pg.metodo === "Transferencia" && cta) { [`Banco: ${cta.banco}`, `Titular: ${cta.titular}`, cta.cuenta ? `Cuenta: ${cta.cuenta}` : "", cta.clabe ? `CLABE: ${cta.clabe}` : "", `Referencia: ${folio}`].filter(Boolean).forEach(t => { doc.text(t, M, y); y += 11; }); }
-  if (pg.metodo === "Liga de pago" && liga) { doc.text("Paga en línea: ", M, y); doc.setTextColor(88, 94, 166); doc.textWithLink(liga, M + 62, y, { url: liga }); doc.setTextColor(45, 43, 66); y += 11; }
-  if (q.notas) { y += 4; doc.splitTextToSize(pz("Notas: " + q.notas), W - 2 * M).forEach(t => { doc.text(t, M, y); y += 11; }); }
+  const pl = []; if (pg.metodo === "Transferencia" && cta) [["Banco", cta.banco], ["Titular", cta.titular], cta.cuenta ? ["Cuenta", cta.cuenta] : null, cta.clabe ? ["CLABE", cta.clabe] : null, ["Referencia", folio]].filter(Boolean).forEach(x => pl.push(x));
+  if (y > H - 190) { doc.addPage(); y = 56; }
+  doc.setFont("helvetica", "bold"); doc.setFontSize(7.5); doc.setTextColor(...GOLD); doc.text("FORMA DE PAGO", M, y, { charSpace: 1.2 }); y += 6; doc.setDrawColor(...LINE); doc.setLineWidth(.5); doc.line(M, y, W - M, y); y += 13;
+  doc.setFontSize(9); doc.setTextColor(...NAVY); doc.text(pg.metodo || "Por definir", M, y); y += 13;
+  doc.setFontSize(8.5); pl.forEach(([a, b]) => { doc.setFont("helvetica", "normal"); doc.setTextColor(...GRAY); doc.text(a, M, y); doc.setTextColor(...INK); doc.setFont("helvetica", a === "CLABE" ? "bold" : "normal"); doc.text(String(b), M + 70, y); y += 11.5; });
+  if (pg.metodo === "Liga de pago" && liga) { doc.setTextColor(...GRAY); doc.text("Pago en línea", M, y); doc.setTextColor(...NAVY); doc.textWithLink(liga, M + 70, y, { url: liga }); y += 11.5; }
+  if (q.notas) { y += 8; doc.setFont("helvetica", "bold"); doc.setFontSize(7.5); doc.setTextColor(...GOLD); doc.text("NOTAS", M, y, { charSpace: 1.2 }); y += 12; doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(...INK); doc.splitTextToSize(pz(q.notas), W - 2 * M).forEach(t => { doc.text(t, M, y); y += 11; }); }
   // detalle de atenciones (sin datos clínicos)
-  if (c.sh.length) { doc.autoTable({ startY: y + 6, margin: { left: M, right: M }, theme: "grid", styles: { fontSize: 7.5, cellPadding: 3, lineColor: [236, 228, 230], lineWidth: .4, textColor: [45, 43, 66] }, headStyles: { fillColor: [239, 239, 249], textColor: [70, 72, 130], fontStyle: "bold" }, head: [["Fecha", "Enfermera", "Servicios", "Horas"]], body: c.sh.map(s => { const sv = s.servicio || {}; return [fmtD(s.fecha) + " " + (s.turno || ""), s.enfermera, (sv.servicios || []).join(", "), String(horasDe(sv))]; }) }); y = doc.lastAutoTable.finalY + 10; }
-  if (y > 640) { doc.addPage(); y = 50; }
-  doc.setFontSize(7); doc.setTextColor(105);
-  ["Precios en moneda nacional (MXN). El total incluye los impuestos aplicables (art. 7 Bis, Ley Federal de Protección al Consumidor).",
-   "IVA conforme a la Ley del IVA: medicamentos a tasa 0 % (art. 2-A); insumos, renta de equipo y servicios a tasa 16 %; conceptos exentos según art. 15.",
-   "Este documento no es un comprobante fiscal (CFDI). Si requiere factura, solicítela enviando su Constancia de Situación Fiscal dentro del mes en que realice el pago.",
-   q.tipo === "Nota de venta" ? "Nota de venta de servicios de enfermería domiciliaria y bienes relacionados." : "Cotización sujeta a la vigencia indicada. Los conceptos pueden variar según la evolución y las indicaciones médicas del paciente.",
-   "Sus datos personales se tratan conforme al Aviso de Privacidad de Alleviare (Ley Federal de Protección de Datos Personales en Posesión de los Particulares)."].forEach(t => { doc.splitTextToSize(t, W - 2 * M).forEach(l => { doc.text(l, M, y); y += 9; }); });
-  pdfFooter(doc, (e.comercial || "Alleviare") + " · " + folio);
+  if (c.sh.length) { y += 10; doc.setFont("helvetica", "bold"); doc.setFontSize(7.5); doc.setTextColor(...GOLD); doc.text("DETALLE DE ATENCIONES", M, y, { charSpace: 1.2 }); doc.autoTable({ startY: y + 6, margin: { left: M, right: M, bottom: 50, top: 50 }, rowPageBreak: "avoid", theme: "plain", styles: { fontSize: 7.5, cellPadding: 4, textColor: INK, lineColor: LINE, lineWidth: { bottom: .4 } }, headStyles: { fillColor: SOFT, textColor: NAVY, fontStyle: "bold" }, head: [["Fecha", "Enfermera", "Modalidad y servicios", "Horas"]], body: c.sh.map(s => { const sv = s.servicio || {}; return [fmtD(s.fecha) + " " + (s.turno || ""), s.enfermera, [modLabel(modDe(sv, c.p))].concat(sv.servicios || []).filter(Boolean).join(" · "), String(horasDe(sv))]; }), columnStyles: { 0: { cellWidth: 92 }, 1: { cellWidth: 120 }, 3: { halign: "right", cellWidth: 40 } } }); y = doc.lastAutoTable.finalY + 14; }
+  // leyendas
+  const leg = ["Precios en moneda nacional (MXN). El total incluye los impuestos aplicables (art. 7 Bis, Ley Federal de Protección al Consumidor).",
+    "IVA conforme a la Ley del IVA: medicamentos a tasa 0 % (art. 2-A); insumos, renta de equipo y servicios a tasa 16 %; conceptos exentos según art. 15.",
+    "Este documento no es un comprobante fiscal (CFDI). Si requiere factura, solicítela enviando su Constancia de Situación Fiscal dentro del mes en que realice el pago.",
+    nota ? "Nota de venta de servicios de enfermería domiciliaria y bienes relacionados." : "Cotización sujeta a la vigencia indicada. Los conceptos pueden variar según la evolución y las indicaciones médicas del paciente.",
+    "Sus datos personales se tratan conforme al Aviso de Privacidad de Alleviare (Ley Federal de Protección de Datos Personales en Posesión de los Particulares)."];
+  const lines = leg.flatMap(t => doc.splitTextToSize(t, W - 2 * M)); if (y + lines.length * 9 > H - 50) { doc.addPage(); y = 56; }
+  doc.setFont("helvetica", "normal"); doc.setFontSize(6.8); doc.setTextColor(...GRAY); lines.forEach(l => { doc.text(l, M, y); y += 9; });
+  // pie
+  const n = doc.getNumberOfPages(); for (let i = 1; i <= n; i++) { doc.setPage(i); doc.setDrawColor(...LINE); doc.setLineWidth(.5); doc.line(M, H - 34, W - M, H - 34); doc.setFont("helvetica", "normal"); doc.setFontSize(7); doc.setTextColor(...GRAY); doc.text([e.comercial || e.razon || "Alleviare", `${e.calle}, Col. ${e.colonia}, ${e.ciudad}`, e.tel ? "Tel. " + e.tel : ""].filter(Boolean).join("  ·  "), M, H - 22); doc.text(`${folio}  ·  ${i} / ${n}`, W - M, H - 22, { align: "right" }); }
   return doc.output("blob");
 }
+async function folioNuevo(serie) {
+  if (Store.mode === "sb") return await SB.rpc("api_folio", { p_token: SB.token(), p_serie: serie });
+  const k = "folio_" + serie; const f = S.config[k] || { id: k, ultimo: 499 }; f.ultimo = Math.max(+f.ultimo || 499, 499) + 1; Store.put("config", f); return f.ultimo;
+}
 function nextFolio(tipo) { const pre = (tipo === "Nota de venta" ? "NV" : "COT") + "-" + today().slice(2).replace(/-/g, ""); const n = Object.values(S.ventas).filter(x => x.doc === "cot").flatMap(x => x.emitidas || []).filter(x => x.folio.startsWith(pre)).length; return pre + "-" + String(n + 1).padStart(3, "0"); }
-function openCotDoc() {
+async function openCotDoc() {
   const c = cotizacion(admSel.pid, admSel.desde, admSel.hasta); if (!c) return;
   if (!window.jspdf) return toast("La librería de PDF no cargó");
   if (!c.act.length) return toast("No hay conceptos para cotizar");
   if (c.act.some(l => !l.pu)) return toast("Hay conceptos sin precio. Captúralos antes de generar el PDF.");
-  const e = empresa(); if (!e.rfc || !e.razon) toast("Aviso: faltan razón social o RFC en Empresa y pagos");
+  const e = empresa(); if (!e.razon) toast("Aviso: falta la razón social en Empresa y pagos");
   if (c.q.pago.metodo === "Transferencia" && !e.cuentas.find(x => x.id === c.q.pago.cuentaId)) return toast("Elige la cuenta bancaria para el depósito");
   if (c.q.pago.metodo === "Liga de pago" && !c.q.pago.ligaUrl && !e.ligas.find(x => x.id === c.q.pago.ligaId)) return toast("Elige o pega la liga de pago");
-  const folio = nextFolio(c.q.tipo); let blob; try { blob = cotPDFBlob(c, folio); } catch (er) { console.error(er); return toast("No se pudo generar el PDF: " + er.message); }
+  const ev = admSel.editVenta && S.ventas[admSel.editVenta] && S.ventas[admSel.editVenta].pid === c.p.id ? S.ventas[admSel.editVenta] : null;
+  let num; if (!ev) { try { num = await folioNuevo("venta"); } catch (er) { return toast("No se pudo obtener el folio: " + er.code); } }
+  const folio = ev ? ev.folio : (c.q.tipo === "Nota de venta" ? "NV-" : "COT-") + num; let blob; try { blob = cotPDFBlob(c, folio); } catch (er) { console.error(er); return toast("No se pudo generar el PDF: " + er.message); }
   const q = c.q; q.emitidas = (q.emitidas || []).concat([{ folio, tipo: q.tipo || "Cotización", total: c.total, t: iso(), por: APP.user, desde: admSel.desde, hasta: admSel.hasta }]); S.ventas[q.id] = q; Store.put("ventas", q);
-  const cl0 = q.cliente || {}; Store.put("ventas", { id: "venta_" + folio, doc: "venta", folio, tipo: q.tipo || "Cotización", pid: c.p.id, srvId: c.srv ? c.srv.id : "", paciente: c.p.nombre, cliente: cl0.nombre || c.p.responsable || c.p.nombre, tel: cl0.tel || "", correo: cl0.correo || "", desde: admSel.desde, hasta: admSel.hasta, bruto: c.bruto, descuento: c.desc, descTxt: c.desc ? descTxt(c) : "", sub: c.sub, iva: c.iva, total: c.total, base: c.base, metodo: q.pago.metodo, lines: c.act.map(l => ({ concepto: l.concepto, cat: l.cat, unidad: l.unidad, cant: l.cant, pu: l.pu, iva: l.iva })), pagos: [], t: iso(), por: APP.user, estadoCot: q.tipo === "Nota de venta" ? "" : "Enviada" });
+  const cl0 = q.cliente || {}; const nv = { id: "venta_" + folio, doc: "venta", folio, tipo: q.tipo || "Cotización", pid: c.p.id, srvId: c.srv ? c.srv.id : "", paciente: c.p.nombre, cliente: cl0.nombre || c.p.responsable || c.p.nombre, tel: cl0.tel || "", correo: cl0.correo || "", desde: admSel.desde, hasta: admSel.hasta, bruto: c.bruto, descuento: c.desc, descTxt: c.desc ? descTxt(c) : "", sub: c.sub, iva: c.iva, total: c.total, base: c.base, metodo: q.pago.metodo, lines: c.act.map(l => ({ concepto: l.concepto, cat: l.cat, unidad: l.unidad, cant: l.cant, pu: l.pu, iva: l.iva })), pagos: [], t: iso(), por: APP.user, estadoCot: q.tipo === "Nota de venta" ? "" : "Enviada" };
+  if (ev) { const keep = { id: ev.id, t: ev.t, por: ev.por, pagos: ev.pagos || [], estadoCot: ev.estadoCot, aceptadaEn: ev.aceptadaEn, aceptadaPor: ev.aceptadaPor, deuda: ev.deuda, deudaEn: ev.deudaEn }; if (nv.tipo === "Nota de venta") keep.estadoCot = ""; else if (ev.tipo === "Nota de venta") keep.estadoCot = "Enviada"; Object.assign(ev, nv, keep, { editadaEn: iso(), editadaPor: APP.user, ediciones: (ev.ediciones || 0) + 1 }); Store.put("ventas", ev); admSel.editVenta = ""; } else Store.put("ventas", nv);
   const fname = `${(q.tipo || "Cotización").replace(/ /g, "_")}_${folio}_${c.p.nombre.replace(/[^\wÁÉÍÓÚÑáéíóúñ]+/g, "_")}.pdf`;
   const cl = q.cliente || {}; const tel = String(cl.tel || "").replace(/\D/g, "");
   const texto = `Alleviare · ${q.tipo || "Cotización"} ${folio}\nPaciente: ${c.p.nombre}\nTotal: ${money(c.total)} (IVA incluido)\nSe adjunta el documento en PDF.`;
@@ -1658,7 +1758,7 @@ function serviciosHTML() {
     return `<div class="cl"><div class="cl-h"><span><b>${esc(p.nombre)}</b> <span class="pill ${st === "Cumplido" ? "ok" : st === "En curso" ? "warn" : "acc"}">${st}</span>${s.cotPrevia ? ` <span class="pill muted">con cotización previa</span>` : ` <span class="pill muted">sin cotización previa</span>`}</span><span class="small muted" style="white-space:nowrap">${esc(s.folio || "")}</span></div>
       <div class="small muted" style="margin-top:2px">Enfermera asignada: <b>${esc(s.enfermera || "—")}</b> · ${fmtD(s.inicio)}${s.fin ? " al " + fmtD(s.fin) : ""} · ${sh.length} atención(es) · ${ins.length} insumo(s) registrado(s)</div>
       ${(s.planeado || []).length ? `<div class="small" style="margin-top:2px">Cotizado: ${s.planeado.map(x => x.cant + " × " + esc(x.concepto)).join(", ")}</div>` : ""}
-      <div class="row" style="margin-top:6px">${st !== "Cumplido" ? `<button class="btn sm" data-srv-close="${s.id}">Servicio cumplido: cerrar y ${s.cotPrevia ? "generar nota" : "generar cotización"}</button>` : `<button class="btn ghost sm" data-srv-cot="${s.id}">Ver cotización</button>`}${s.cotPrevia && st !== "Cumplido" ? `<button class="btn ghost sm" data-srv-cot="${s.id}">Cotización previa</button>` : ""}${st === "Programado" ? `<button class="link small" data-srv-cancel="${s.id}">Cancelar</button>` : ""}</div></div>`; };
+      <div class="row" style="margin-top:6px">${st !== "Cumplido" ? `<button class="btn sm" data-srv-close="${s.id}">Servicio cumplido: cerrar y ${s.cotPrevia ? "generar nota" : "generar cotización"}</button>` : `<button class="btn ghost sm" data-srv-cot="${s.id}">Ver cotización</button>`}${s.cotPrevia && st !== "Cumplido" ? `<button class="btn ghost sm" data-srv-cot="${s.id}">Cotización previa</button>` : ""}${S.patients[s.pid] && st !== "Cumplido" ? `<a class="btn ghost sm" target="_blank" rel="noopener" href="${srvWaNurse(S.patients[s.pid], "Servicio " + (s.folio || "") + " · inicia " + fmtD(s.inicio) + (s.enfermera ? " · " + s.enfermera : ""))}">WhatsApp a la enfermera</a>` : ""}${st === "Programado" ? `<button class="link small" data-srv-cancel="${s.id}">Cancelar</button>` : ""}</div></div>`; };
   return `<div class="stack">
     <p class="small muted">Un servicio agrupa las atenciones de un paciente. Los insumos que registra la enfermera quedan <b>apartados</b> y se descuentan de su inventario solo cuando marcas <b>servicio cumplido</b>.</p>
     <div class="row"><button class="btn" id="srv-new">+ Servicio con cotización previa</button></div>
@@ -1741,10 +1841,13 @@ function misServiciosHTML() {
 /* ============ ADMINISTRACIÓN: cobranza, pacientes, gastos y contabilidad mensual ============ */
 const ventasDocs = () => Object.values(S.ventas || {}).filter(x => x.doc === "venta" && !x.cancelada);
 const pagadoDe = v => r2((v.pagos || []).filter(p => !p.anulado).reduce((a, p) => a + (+p.monto || 0), 0));
+const SIN_ESTATUS_DIAS = 3;
+function notasSinEstatus() { return ventasDocs().filter(v => { const [, t] = estadoVenta(v); return (t === "Cotización enviada" || t === "Por cobrar" || t === "Vencido") && daysTo(v.t.slice(0, 10)) <= -SIN_ESTATUS_DIAS; }).sort((a, b) => a.t.localeCompare(b.t)); }
+function sinEstatusHTML(dir) { const xs = notasSinEstatus(); if (!xs.length) return ""; return `<div class="alert warn stack" style="gap:6px"><div><b>${xs.length} nota(s) sin actualizar su estatus</b> desde hace más de ${SIN_ESTATUS_DIAS} días. Márcalas como pagada, rechazada o deuda.</div>${xs.slice(0, dir ? 5 : 20).map(v => `<div class="row between small"><span><b>${esc(v.folio)}</b> · ${esc(v.paciente)} · ${money(v.total)} · ${fmtD(v.t)} · ${esc(estadoVenta(v)[1])}</span>${dir ? "" : `<span class="row" style="gap:6px"><button class="btn sm" data-pay="${v.id}">Pagada</button>${!esCxC(v) ? `<button class="btn quiet sm" data-cotno="${v.id}">Rechazada</button>` : ""}<button class="btn quiet sm" data-deuda="${v.id}">Deuda</button></span>`}</div>`).join("")}${dir ? `<div><button class="btn sm" data-go-cob="1">Ir a Cobranza</button></div>` : ""}</div>`; }
 const esCxC = v => v.tipo === "Nota de venta" || v.estadoCot === "Aceptada";
 function estadoVenta(v) {
   if (v.tipo !== "Nota de venta" && v.estadoCot !== "Aceptada") return v.estadoCot === "Rechazada" ? ["muted", "Rechazada"] : ["acc", "Cotización enviada"];
-  const pg = pagadoDe(v); if (pg >= v.total - 0.009) return ["ok", "Pagado"]; if (pg > 0) return ["warn", "Pago parcial"];
+  const pg = pagadoDe(v); if (pg >= v.total - 0.009) return ["ok", "Pagado"]; if (v.deuda) return ["bad", pg > 0 ? "Deuda (pago parcial)" : "Deuda"]; if (pg > 0) return ["warn", "Pago parcial"];
   return daysTo(v.t.slice(0, 10)) < -30 ? ["bad", "Vencido"] : ["warn", "Por cobrar"];
 }
 const GASTO_CATS = ["Compra de medicamentos", "Compra de insumos y material de curación", "Equipo (compra o mantenimiento)", "Honorarios de enfermería", "Honorarios médicos y terapeutas", "Nómina administrativa", "Renta y servicios de oficina", "Transporte y gasolina", "Publicidad y marketing", "Comisiones bancarias y de pago", "Impuestos y derechos", "Contabilidad y asesoría", "Otros gastos"];
@@ -1756,18 +1859,20 @@ let finMes = "", cobFiltro = "pend";
 
 /* --- cobranza --- */
 function cobranzaHTML() {
+  const sinEst = sinEstatusHTML(false);
   const vs = ventasDocs().sort((a, b) => b.t.localeCompare(a.t));
   const cxc = vs.filter(esCxC); const saldo = r2(cxc.reduce((a, v) => a + Math.max(0, v.total - pagadoDe(v)), 0));
   const mes = today().slice(0, 7); const cobradoMes = r2(vs.flatMap(v => (v.pagos || []).filter(p => !p.anulado && mesDe(p.fecha) === mes)).reduce((a, p) => a + +p.monto, 0));
   const venc = cxc.filter(v => estadoVenta(v)[1] === "Vencido");
   const xs = cobFiltro === "pend" ? cxc.filter(v => pagadoDe(v) < v.total - 0.009) : cobFiltro === "pag" ? cxc.filter(v => pagadoDe(v) >= v.total - 0.009) : cobFiltro === "cot" ? vs.filter(v => !esCxC(v)) : vs;
   return `<div class="stack">
+    ${sinEst}
     <div class="kpis"><div class="kpi ${saldo ? "warn" : "ok"}"><b class="kmoney">${money(saldo)}</b><span>Por cobrar</span></div><div class="kpi ok"><b class="kmoney">${money(cobradoMes)}</b><span>Cobrado en ${mesTxt(mes)}</span></div><div class="kpi ${venc.length ? "bad" : "ok"}"><b>${venc.length}</b><span>Vencidos (más de 30 días)</span></div><div class="kpi"><b>${vs.filter(v => !esCxC(v) && v.estadoCot !== "Rechazada").length}</b><span>Cotizaciones sin respuesta</span></div></div>
     <div class="tabs" id="cobt">${[["pend", "Por cobrar"], ["pag", "Pagados"], ["cot", "Cotizaciones"], ["all", "Todos"]].map(([id, l]) => `<button data-cobf="${id}" class="${cobFiltro === id ? "on" : ""}">${l}</button>`).join("")}</div>
     ${xs.length ? `<div class="card stack" style="gap:0;padding:4px 16px">${xs.map(v => { const [c, t] = estadoVenta(v); const pg = pagadoDe(v); return `<div class="cl"><div class="cl-h"><span><b>${esc(v.folio)}</b> · ${esc(v.paciente)}</span><b class="num">${money(v.total)}</b></div>
       <div class="cl-h small muted" style="margin-top:2px"><span>${esc(v.tipo)} · ${fmtD(v.t)} · ${esc(v.cliente || "")}</span><span class="pill ${c}">${esc(t)}</span></div>
       ${esCxC(v) ? `<div class="small" style="margin-top:4px">Pagado ${money(pg)} · <b>Saldo ${money(Math.max(0, v.total - pg))}</b>${(v.pagos || []).filter(p => !p.anulado).length ? `<div class="muted">${v.pagos.filter(p => !p.anulado).map(p => `${fmtD(p.fecha)} ${money(p.monto)} ${esc(p.metodo)}${p.ref ? " (" + esc(p.ref) + ")" : ""}`).join(" · ")}</div>` : ""}</div>` : ""}
-      <div class="row" style="margin-top:6px">${esCxC(v) && pg < v.total - 0.009 ? `<button class="btn sm" data-pay="${v.id}">Registrar pago</button>` : ""}${!esCxC(v) && v.estadoCot !== "Rechazada" ? `<button class="btn sm" data-cotok="${v.id}">Aceptada por el paciente</button><button class="btn quiet sm" data-cotno="${v.id}">Rechazada</button>` : ""}<button class="link small" data-vcancel="${v.id}">Cancelar documento</button>${borrBtn("ventas", v.id)}</div></div>`; }).join("")}</div>` : `<div class="empty">Sin documentos en esta lista. Se crean al generar el PDF de una cotización o nota de venta.</div>`}
+      <div class="row" style="margin-top:6px">${esCxC(v) && pg < v.total - 0.009 ? `<button class="btn sm" data-pay="${v.id}">Registrar pago</button>` : ""}${!esCxC(v) && v.estadoCot !== "Rechazada" ? `<button class="btn sm" data-cotok="${v.id}">Aceptada por el paciente</button><button class="btn quiet sm" data-cotno="${v.id}">Rechazada</button>` : ""}<button class="link small" data-vcancel="${v.id}">Cancelar documento</button>${!["ok", "muted"].includes(estadoVenta(v)[0]) && !v.deuda ? `<button class="btn quiet sm" data-deuda="${v.id}">Marcar deuda</button>` : ""}<button class="btn ghost sm" data-vedit="${v.id}">Editar</button>${borrBtn("ventas", v.id)}</div></div>`; }).join("")}</div>` : `<div class="empty">Sin documentos en esta lista. Se crean al generar el PDF de una cotización o nota de venta.</div>`}
   </div>`;
 }
 document.addEventListener("click", e => {
@@ -1775,7 +1880,11 @@ document.addEventListener("click", e => {
   const ok = e.target.closest("[data-cotok]"); if (ok) { const v = S.ventas[ok.dataset.cotok]; v.estadoCot = "Aceptada"; v.aceptadaEn = iso(); v.aceptadaPor = APP.user; Store.put("ventas", v); render(); toast("Cotización aceptada: ya cuenta como cuenta por cobrar"); }
   const no = e.target.closest("[data-cotno]"); if (no) { const v = S.ventas[no.dataset.cotno]; v.estadoCot = "Rechazada"; Store.put("ventas", v); render(); }
   const cc = e.target.closest("[data-vcancel]"); if (cc) { const v = S.ventas[cc.dataset.vcancel]; askReason("Cancelar " + v.folio, "Motivo de la cancelación (queda registrado)", r => { v.cancelada = true; v.canceladaMotivo = r; v.canceladaPor = APP.user; v.canceladaEn = iso(); Store.put("ventas", v); render(); }); }
-  const pb = e.target.closest("[data-pay]"); if (pb) openPago(pb.dataset.pay);
+  const pb = e.target.closest("[data-pay]"); if (pb) { const v = S.ventas[pb.dataset.pay]; if (v && !esCxC(v)) { v.estadoCot = "Aceptada"; v.aceptadaEn = iso(); v.aceptadaPor = APP.user; Store.put("ventas", v); } openPago(pb.dataset.pay); }
+  const dd = e.target.closest("[data-deuda]"); if (dd) { const v = S.ventas[dd.dataset.deuda]; if (v.tipo !== "Nota de venta" && v.estadoCot !== "Aceptada") { v.estadoCot = "Aceptada"; v.aceptadaEn = iso(); v.aceptadaPor = APP.user; } v.deuda = true; v.deudaEn = iso(); v.deudaPor = APP.user; Store.put("ventas", v); render(); toast(v.folio + " marcada como deuda"); }
+  const ve = e.target.closest("[data-vedit]"); if (ve) { const v = S.ventas[ve.dataset.vedit]; if (!S.patients[v.pid]) return toast("El paciente de esta nota ya no existe"); admSel = { pid: v.pid, srv: v.srvId || "", desde: v.desde || "", hasta: v.hasta || "", editVenta: v.id }; const q = cotDoc(v.pid); q.tipo = v.tipo; saveCot(q); admTab = "cot"; render(); window.scrollTo(0, 0); }
+  if (e.target.closest("[data-go-cob]")) { APP.view = "adm"; admTab = "cob"; render(); window.scrollTo(0, 0); }
+  if (e.target.id === "ved-x") { admSel.editVenta = ""; render(); }
 });
 function openPago(id) {
   const v = S.ventas[id]; const saldo = r2(v.total - pagadoDe(v)); const e = empresa();
@@ -1799,7 +1908,7 @@ function pacientesAdmHTML() {
     <div class="kpis"><div class="kpi"><b>${rows.filter(r => r.p.estado === "activo").length}</b><span>Pacientes activos</span></div><div class="kpi ${rows.some(r => r.saldo > 0) ? "warn" : "ok"}"><b>${rows.filter(r => r.saldo > 0).length}</b><span>Con saldo pendiente</span></div><div class="kpi ${rows.some(r => r.sinCot) ? "warn" : "ok"}"><b>${rows.filter(r => r.sinCot).length}</b><span>Con atenciones sin cotizar</span></div></div>
     ${rows.length ? `<div class="card stack" style="gap:0;padding:4px 16px">${rows.map(r => `<div class="cl"><div class="cl-h"><span><b>${esc(r.p.nombre)}</b> <span class="pill ${r.p.estado === "activo" ? "ok" : "muted"}">${esc(r.p.estado || "")}</span></span><b class="num">${r.saldo > 0 ? `<span style="color:var(--bad,#B3261E)">Saldo ${money(r.saldo)}</span>` : r.vendido ? "Al corriente" : ""}</b></div>
       <div class="small muted" style="margin-top:2px">${r.mesN} atenciones este mes · última ${r.ult ? fmtD(r.ult.fecha) + " (" + esc(r.ult.enfermera) + ")" : "—"} · vendido ${money(r.vendido)} · cobrado ${money(r.cobrado)}${r.ultDoc ? " · último documento " + esc(r.ultDoc.folio) : ""}</div>
-      <div class="row" style="margin-top:6px">${r.sinCot ? `<span class="pill warn">${r.sinCot} atención(es) sin cerrar ni cotizar</span><button class="btn sm" data-srv-closep="${r.p.id}">Cerrar servicio</button>` : ""}${r.p.porCompletar && r.p.alta ? `<span class="pill warn">Esperando a ${esc(r.p.alta.enfermera)} · ${esc(cuandoTxt(r.p.alta))}</span><button class="btn ghost sm" data-alta-ed="${r.p.id}">Editar alta</button>` : ""}<button class="btn ghost sm" data-adm-cot="${r.p.id}">Cotizar</button>${borrBtn("patients", r.p.id)}</div></div>`).join("")}</div>` : emptyDemo()}
+      <div class="row" style="margin-top:6px">${r.sinCot ? `<span class="pill warn">${r.sinCot} atención(es) sin cerrar ni cotizar</span><button class="btn sm" data-srv-closep="${r.p.id}">Cerrar servicio</button>` : ""}${r.p.porCompletar && r.p.alta ? `<span class="pill warn">${r.p.alta.folio ? esc(r.p.alta.folio) + " · " : ""}Esperando a ${esc(r.p.alta.enfermera)} · ${esc(cuandoTxt(r.p.alta))}</span><button class="btn ghost sm" data-alta-ed="${r.p.id}">Editar alta</button><a class="btn ghost sm" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(altaMsg(r.p))}">WhatsApp a la enfermera</a>` : ""}<button class="btn ghost sm" data-adm-cot="${r.p.id}">Cotizar</button>${borrBtn("patients", r.p.id)}</div></div>`).join("")}</div>` : emptyDemo()}
   </div>`;
 }
 document.addEventListener("click", e => { const b = e.target.closest("[data-adm-cot]"); if (b) { admSel.pid = b.dataset.admCot; admTab = "cot"; render(); window.scrollTo(0, 0); } });
@@ -2152,7 +2261,8 @@ const altasPend = () => patients().filter(p => p.porCompletar && p.alta);
 const telMx = t => { t = String(t || "").replace(/\D/g, ""); return t.length === 10 ? "52" + t : t; };
 function cuandoTxt(a) { const d = a.fecha === today() ? "Hoy" : a.fecha === addDays(today(), 1) ? "Mañana" : fmtD(a.fecha); return d + (a.hora ? " a las " + a.hora : ""); }
 function addDays(d, n) { const x = new Date(d + "T12:00:00"); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); }
-function altaMsg(p) { const a = p.alta; return `Hola ${a.enfermera.split(" ").slice(-3)[0] || ""}, se te asignó un servicio de ${modLabel(a.modalidad)} (${a.detalle}).\nPaciente: ${p.nombre}\nCuándo: ${cuandoTxt(a)}\nDirección: ${p.domicilio}\nFamiliar: ${p.responsable} · ${p.telResp}${a.notas ? "\nNotas: " + a.notas : ""}\nYa aparece en tu plataforma de Alleviare para que completes el registro.`; }
+function srvWaNurse(p, extra) { const a = p.alta || {}; const txt = `${a.folio ? a.folio + " · " : ""}Servicio asignado: ${p.nombre}${a.fecha ? "\nCuándo: " + cuandoTxt(a) : ""}${extra ? "\n" + extra : ""}${p.domicilio ? "\nDirección: " + p.domicilio : ""}${p.responsable ? "\nFamiliar: " + p.responsable + (p.telResp ? " · " + p.telResp : "") : ""}\nAbrir en la plataforma: ${pacUrl(p.id)}`; return "https://wa.me/?text=" + encodeURIComponent(txt); }
+function altaMsg(p) { const a = p.alta; return `${a.folio ? a.folio + " · " : ""}Hola ${a.enfermera.split(" ").slice(-3)[0] || ""}, se te asignó un servicio de ${modLabel(a.modalidad)} (${a.detalle}).\nPaciente: ${p.nombre}\nCuándo: ${cuandoTxt(a)}\nDirección: ${p.domicilio}\nFamiliar: ${p.responsable} · ${p.telResp}${a.notas ? "\nNotas: " + a.notas : ""}\nYa aparece en tu plataforma de Alleviare para que completes el registro: ${pacUrl(p.id)}`; }
 function openAlta(ex) {
   const a0 = ex ? ex.alta || {} : {};
   const o = { nombre: ex ? ex.nombre : "", domicilio: ex ? ex.domicilio || "" : "", responsable: ex ? ex.responsable || "" : "", telResp: ex ? ex.telResp || "" : "", fecha: a0.fecha || today(), hora: a0.hora || "", enfermera: a0.enfermera || "", modalidad: a0.modalidad || "express", detalle: a0.detalle || "", notas: a0.notas || "" };
@@ -2176,7 +2286,8 @@ function openAlta(ex) {
     const dup = !ex && patients().find(x => norm(x.nombre) === norm(o.nombre));
     const go2 = async () => {
       const id = ex ? ex.id : uid("p");
-      const data = { nombre: o.nombre.trim(), domicilio: o.domicilio.trim(), responsable: o.responsable.trim(), telResp: o.telResp.trim(), alta: { fecha: o.fecha, hora: o.hora, enfermera: o.enfermera, modalidad: o.modalidad, detalle: o.detalle.trim(), notas: o.notas.trim() } };
+      let fol = ex && ex.alta ? ex.alta.folio : ""; if (!fol) { try { fol = "SOL-" + await folioNuevo("solicitud"); } catch (er) { fol = ""; } }
+      const data = { nombre: o.nombre.trim(), domicilio: o.domicilio.trim(), responsable: o.responsable.trim(), telResp: o.telResp.trim(), alta: { folio: fol, fecha: o.fecha, hora: o.hora, enfermera: o.enfermera, modalidad: o.modalidad, detalle: o.detalle.trim(), notas: o.notas.trim() } };
       $("#al-ok").disabled = true;
       if (Store.mode === "sb") {
         try { await SB.rpc("api_paciente_alta", { p_token: SB.token(), p_id: id, p_data: data }); }
@@ -2189,7 +2300,7 @@ function openAlta(ex) {
       }
       const p = S.patients[id];
       modal(`<h2>${ex ? "Cambios guardados" : "Paciente registrado"}</h2>
-        <div class="alert ok"><b>${esc(o.enfermera)}</b> ya lo tiene como alerta en su plataforma (${esc(modLabel(o.modalidad))} · ${esc(cuandoTxt(p.alta))}).</div>
+        <div class="alert ok">${p.alta.folio ? `Solicitud <b>${esc(p.alta.folio)}</b>. ` : ""}<b>${esc(o.enfermera)}</b> ya lo tiene como alerta en su plataforma (${esc(modLabel(o.modalidad))} · ${esc(cuandoTxt(p.alta))}).</div>
         <p class="small muted">Si quieres, mándale también el resumen por WhatsApp.</p>
         <div class="row"><a class="btn ghost" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(altaMsg(p))}">Enviar resumen por WhatsApp</a><button class="btn" data-close>Listo</button></div>`);
       render();
@@ -2201,7 +2312,7 @@ function altasHTML() {
   const xs = altasMias(); if (!xs.length) return "";
   const notif = "Notification" in window && Notification.permission === "default";
   return `<div class="stack"><div class="row between"><div class="sec-t">Nuevos pacientes asignados a mí</div>${notif ? `<button class="link small" id="al-notif">Activar avisos en este celular</button>` : ""}</div>${xs.map(p => { const a = p.alta; return `<div class="card stack" style="border-left:4px solid var(--acc,#B4387A)">
-    <div class="row between"><b>${esc(p.nombre)}</b><span class="pill ${a.modalidad === "express" ? "acc" : "ok"}">${esc(modLabel(a.modalidad))}</span></div>
+    <div class="row between"><b>${a.folio ? `<span class="small muted">${esc(a.folio)}</span> ` : ""}${esc(p.nombre)}</b><span class="pill ${a.modalidad === "express" ? "acc" : "ok"}">${esc(modLabel(a.modalidad))}</span></div>
     <div><b>${esc(cuandoTxt(a))}</b> · ${esc(a.detalle || "")}</div>
     <div class="small">${esc(p.domicilio || "")} · <a target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(p.domicilio || "")}">Ver ruta</a></div>
     <div class="small">Familiar: ${esc(p.responsable || "—")} · <a href="tel:${esc(String(p.telResp || "").replace(/\D/g, ""))}">${esc(p.telResp || "")}</a> · <a target="_blank" rel="noopener" href="https://wa.me/${telMx(p.telResp)}">WhatsApp</a></div>
