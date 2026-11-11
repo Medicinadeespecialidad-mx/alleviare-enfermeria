@@ -400,7 +400,7 @@ function renderTop() {
 let LINK_PID = (location.hash.match(/^#p=([A-Za-z0-9_]+)$/) || [])[1] || "";
 const pacUrl = pid => location.origin + location.pathname + "#p=" + pid;
 function render() {
-  BINDS = {}; renderTop();
+  const keepB = {}; document.querySelectorAll("#modal-root [data-o], .modal-bg [data-o]").forEach(el => { const k = el.dataset.o; if (BINDS[k]) keepB[k] = BINDS[k]; }); BINDS = keepB; renderTop();
   const m = $("#main");
   if (LINK_PID && Store.loaded && APP.user && S.patients[LINK_PID] && (Store.mode !== "sb" || can("enfermeria") || can("coordinacion"))) { const pid = LINK_PID; LINK_PID = ""; try { history.replaceState(null, "", location.pathname); } catch (e) { } APP.view = "enf"; APP.r = views.enf = { p: "patient", pid }; }
   if (!Store.loaded) { m.innerHTML = `<div class="empty">Cargando registros compartidos…</div>`; return; }
@@ -787,7 +787,7 @@ function openStartShift(pid) {
   const p = S.patients[pid]; const prev = shiftsOf(pid).length;
   const h = new Date().getHours(); const o = { fecha: today(), turno: h >= 7 && h < 15 ? TURNOS[0] : h >= 15 && h < 21 ? TURNOS[1] : TURNOS[2], tipoAtencion: prev ? "Subsecuente" : "Primera vez" }; const k = bnd(o);
   modal(`<h2>Iniciar turno</h2><p class="muted">${esc(p.nombre)}</p><div class="fieldgrid">${F("Fecha", I(k, o, "fecha", 'type="date"'))}${F("Turno", SEL(k, o, "turno", TURNOS))}${F("Atención", CHIPS(k, o, "tipoAtencion", ["Primera vez", "Subsecuente"]), "full")}${F("Enfermera", `<input value="${esc(APP.user)}" disabled>`, "full")}</div><div class="row"><button class="btn" id="s-ok">Iniciar</button><button class="btn quiet" data-close>Cancelar</button></div>`);
-  $("#s-ok").onclick = () => { const prevS = shiftsOf(pid)[0]; const sv0 = srvOpenFor(pid); const s = Object.assign({ id: uid("s"), patientId: pid, servicioId: sv0 ? sv0.id : "", enfermera: APP.user, creadoEn: iso(), evaluaciones: [], admin: [], insumos: [], bomba: { usada: false }, acceso: prevS && prevS.acceso ? clone(prevS.acceso) : {}, servicio: { servicios: [], modalidad: (p.alta && p.alta.modalidad) || (prevS && prevS.servicio && prevS.servicio.modalidad) || "", inicio: nowHM(), km: prevS && prevS.servicio ? prevS.servicio.km : "", distancia: prevS && prevS.servicio ? prevS.servicio.distancia : "" }, comentario: "", cerrado: false }, o); audit(s, "Inició turno"); Store.put("shifts", s); closeModal(); go({ p: "shift", sid: s.id }); };
+  $("#s-ok").onclick = () => { const prevS = shiftsOf(pid)[0]; const sv0 = srvOpenFor(pid); if (sv0 && sv0.contacto) { let ch = false; [["responsable", "responsable"], ["telResp", "tel"], ["domicilio", "domicilio"]].forEach(([a, b]) => { if (!p[a] && sv0.contacto[b]) { p[a] = sv0.contacto[b]; ch = true; } }); if (ch) { audit(p, "Datos de contacto tomados del servicio " + (sv0.folio || "")); Store.put("patients", p); } } const s = Object.assign({ id: uid("s"), patientId: pid, servicioId: sv0 ? sv0.id : "", enfermera: APP.user, creadoEn: iso(), evaluaciones: [], admin: [], insumos: [], bomba: { usada: false }, acceso: prevS && prevS.acceso ? clone(prevS.acceso) : {}, servicio: { servicios: [], modalidad: (p.alta && p.alta.modalidad) || (prevS && prevS.servicio && prevS.servicio.modalidad) || "", inicio: nowHM(), km: prevS && prevS.servicio ? prevS.servicio.km : "", distancia: prevS && prevS.servicio ? prevS.servicio.distancia : "" }, comentario: "", cerrado: false }, o); audit(s, "Inició turno"); Store.put("shifts", s); closeModal(); go({ p: "shift", sid: s.id }); };
 }
 const canEdit = s => !s.cerrado && norm(s.enfermera) === norm(APP.user) && APP.view === "enf";
 let openEv = null;
@@ -918,7 +918,7 @@ function openAdm(sid, medId) {
 /* --- insumos del turno ligados a inventario --- */
 function insumosHTML(s, ed, k) {
   const xs = s.insumos || [];
-  return `${xs.length ? `<div class="list card">${xs.map(x => `<div class="it"><div><b class="num">${x.cantidad}</b> × ${esc(x.nombre)}${x.lote ? ` <span class="small muted">lote ${esc(x.lote)}</span>` : ""}${x.libre ? ` <span class="pill warn">fuera de inventario</span>` : ""}</div><div class="small muted">${esc(x.por)}${ed ? ` · <button class="link" data-del-ins="${x.id}">quitar</button>` : ""}</div></div>`).join("")}</div>` : `<div class="empty">Sin insumos registrados.</div>`}
+  return `${insCotHTML(s, ed)}${xs.length ? `<div class="list card">${xs.map(x => `<div class="it"><div><b class="num">${x.cantidad}</b> × ${esc(x.nombre)}${x.lote ? ` <span class="small muted">lote ${esc(x.lote)}</span>` : ""}${x.libre ? ` <span class="pill warn">fuera de inventario</span>` : ""}</div><div class="small muted">${esc(x.por)}${ed ? ` · <button class="link" data-del-ins="${x.id}">quitar</button>` : ""}</div></div>`).join("")}</div>` : `<div class="empty">Sin insumos registrados.</div>`}
   ${rpbiHTML(s, k, ed)}
   ${ed ? `<div class="row"><button class="btn sm" id="add-ins">Agregar insumo o medicamento</button><span class="small muted">Queda apartado de tu inventario y se descuenta cuando Administración marca el servicio cumplido.</span></div>` : ""}`;
 }
@@ -1279,15 +1279,26 @@ const CATS = [
   ["bom", "Bombas desechables (elastomérica)", "producto", "16"],
   ["ren", "Renta de equipo (bomba de infusión eléctrica, etc.)", "renta", "16"],
   ["enf", "Servicios de enfermería", "servicio", "16"],
-  ["dom", "Atención a domicilio y traslados", "simple", "16"],
+  ["dom", "Envíos y traslados", "simple", "16"],
   ["mes", "Médico especialista", "servicio", "16"],
   ["ter", "Terapias (física, respiratoria, nutrición, psicología)", "servicio", "16"],
   ["otr", "Otros conceptos", "simple", "16"]
 ];
 const catOf = id => CATS.find(c => c[0] === id) || CATS[CATS.length - 1];
 const IVAS = [["16", "IVA 16 %"], ["0", "Tasa 0 %"], ["ex", "Exento"]];
+const EMISORES = [["pm", "Empresa (S.A. de C.V. u otra persona moral)"], ["scmed", "Sociedad civil de médicos"], ["pfmed", "Persona física con título de médico"], ["pf", "Persona física sin título de médico"]];
+// IVA según la Ley del IVA: medicinas de patente tasa 0 % (art. 2-A, fr. I, inc. b); equipo para personas con discapacidad tasa 0 % al venderse (art. 2-A, fr. I, inc. i);
+// servicios de medicina exentos solo si los presta una persona física con título de médico o una sociedad civil de médicos (art. 15, fr. XIV); lo demás 16 % (art. 1).
+const ivaDe = c => c.ivaManual && c.iva ? c.iva : ivaLey(c.cat, c.nombre);
+function ivaLey(cat, nombre) {
+  const t = norm(nombre || ""); let em = "pm"; try { em = empresa().emisor || "pm"; } catch (x) { }
+  if (cat === "med" || cat === "sol") return "0";
+  if (cat === "mes") return em === "scmed" || em === "pfmed" ? "ex" : "16";
+  if (cat !== "ren" && /silla de ruedas|andadera|baston|muleta|protesis|ortesis|aparato auditivo/.test(t)) return "0";
+  return "16";
+}
 const ivaTxt = v => (IVAS.find(x => x[0] === v) || IVAS[0])[1];
-const EMPRESA0 = { id: "empresa", razon: "", comercial: "Alleviare", rfc: "", regimen: "", calle: "Amado Nervo 59", colonia: "Ladrón de Guevara", cp: "44600", ciudad: "Guadalajara", estado: "Jalisco", tel: "", correo: "", web: "", avisoFunc: "", vigencia: 15, margen: 40, margenMin: 38, margenMax: 45, cuentas: [], ligas: [] };
+const EMPRESA0 = { id: "empresa", razon: "", comercial: "Alleviare", rfc: "", regimen: "", emisor: "pm", calle: "Amado Nervo 59", colonia: "Ladrón de Guevara", cp: "44600", ciudad: "Guadalajara", estado: "Jalisco", tel: "", correo: "", web: "", avisoFunc: "", vigencia: 15, margen: 40, margenMin: 38, margenMax: 45, cuentas: [], ligas: [] };
 const empresa = () => { const e = S.ventas && S.ventas.empresa; return e ? Object.assign(clone(EMPRESA0), e) : clone(EMPRESA0); };
 const catalogo = () => Object.values(S.ventas || {}).filter(x => x.doc === "cat" && !x.borrado);
 const isVentas = () => Store.mode !== "sb" || can("administracion");
@@ -1301,7 +1312,7 @@ const findCat = (clave, nombre, codigo) => { const xs = catalogo(); return (clav
 const catFromItem = it => it ? ({ Medicamento: "med", "Solución": "sol", Equipo: "ren" }[it.tipo] || (/elastom/i.test(it.nombre) ? "bom" : "ins")) : "ins";
 
 /* --- cotización calculada desde los turnos + ajustes de Administración --- */
-const cotDoc = pid => { const sv = admSel.srv && S.config[admSel.srv]; const id = "cot_" + (sv && sv.pid === pid ? sv.id : pid); return S.ventas[id] ? S.ventas[id] : { id, doc: "cot", pid, ajustes: {}, extras: [], cliente: {}, pago: { metodo: "Transferencia" }, tipo: "Cotización", notas: "", emitidas: [] }; };
+const cotDoc = pid => { const sv = admSel.srv && S.config[admSel.srv]; const id = "cot_" + (sv && sv.pid === pid ? sv.id : pid); if (sv && sv.pid === pid && !S.ventas[id] && sv.cotId && S.ventas[sv.cotId]) return S.ventas[sv.cotId]; return S.ventas[id] ? S.ventas[id] : { id, doc: "cot", pid, ajustes: {}, extras: [], cliente: {}, pago: { metodo: "Transferencia" }, tipo: "Cotización", notas: "", emitidas: [] }; };
 let admTab = "pac", admSel = { pid: "", srv: "", desde: "", hasta: "" };
 function cotizacion(pid, desde, hasta) {
   const p = S.patients[pid]; if (!p) return null; const q = cotDoc(pid);
@@ -1310,7 +1321,7 @@ function cotizacion(pid, desde, hasta) {
   const lines = [];
   const add = (key, concepto, cat, unidad, cant, c, fallback) => {
     if (!cant) return; let l = lines.find(x => x.key === key);
-    if (!l) { l = { key, concepto: c ? c.nombre : concepto, cat: c ? c.cat : cat, unidad: (c && c.unidad) || unidad, cant: 0, pu: c ? precioCat(c) : (fallback ? fallback.pu : 0), iva: c ? (c.iva || catOf(c.cat)[3]) : (fallback ? fallback.iva : catOf(cat)[3]), sinCat: !c, auto: true, catId: c ? c.id : "" }; lines.push(l); }
+    if (!l) { l = { key, concepto: c ? c.nombre : concepto, cat: c ? c.cat : cat, unidad: (c && c.unidad) || unidad, cant: 0, pu: c ? precioCat(c) : (fallback ? fallback.pu : 0), iva: c ? ivaDe(c) : ivaLey(cat, concepto), sinCat: !c, auto: true, catId: c ? c.id : "" }; lines.push(l); }
     l.cant = r2(l.cant + cant);
   };
   sh.forEach(s => { const sv = s.servicio || {};
@@ -1318,14 +1329,14 @@ function cotizacion(pid, desde, hasta) {
     const h = horasDe(sv);
     if (modDe(sv, p) === "express") { add("express", "Enfermería Express (hasta 4 h)", "enf", "visita", 1, findCat("express", "Enfermería Express (hasta 4 h)")); if (h > 4) add("express_hx", "Hora adicional de Enfermería Express", "enf", "hora", r2(h - 4), findCat("express_hx", "Hora adicional de Enfermería Express")); }
     else if (h) { add("hora", "Enfermera cuidadora · atención continua (por hora)", "enf", "hora", h, findCat("hora", "Hora de cuidado de enfermería")); if (["alto", "finvida"].includes(p.nivel)) add("hora_comp", "Complemento por alta complejidad (por hora)", "enf", "hora", h, findCat("hora_comp", "Complemento por alta complejidad (por hora)")); }
-    if (sv.distancia) add("dist:" + sv.distancia, "Atención a domicilio · trayecto " + distLabel(sv.distancia), "dom", "visita", 1, findCat("dist:" + sv.distancia));
+    // el trayecto ya va incluido en el precio de los servicios de enfermería: se registra solo para control interno
     (s.insumos || []).forEach(x => { const it = x.itemId && S.items[x.itemId]; const c = findCat("", x.nombre, it && it.codigo); const cat = catFromItem(it);
-      add("ins:" + (c ? c.id : norm(x.nombre)), x.nombre, cat, (it && it.unidad) || "pza", +x.cantidad, c, it && +it.precio ? { pu: Math.ceil(+it.precio * (1 + empresa().margen / 100)), iva: catOf(cat)[3] } : null); });
+      add("ins:" + (c ? c.id : norm(x.nombre)), x.nombre, cat, (it && it.unidad) || "pza", +x.cantidad, c, it && +it.precio ? { pu: Math.ceil(+it.precio * (1 + empresa().margen / 100)), iva: ivaLey(cat) } : null); });
     if (s.bomba && s.bomba.usada) add("renta_bomba", "Renta de bomba de infusión eléctrica (por turno)", "ren", "turno", 1, findCat("renta_bomba", "Renta de bomba de infusión eléctrica (por turno)"));
   });
-  if (srv) (srv.planeado || []).forEach(pl => { const c = S.ventas[pl.catId]; const k = planKey(pl, c); if (lines.some(l => l.key === k)) return; if (sh.length && ["ins:", "svc:", "hora", "express", "dist:", "renta_bomba"].some(x => k.startsWith(x))) return; lines.push({ key: k, concepto: c ? c.nombre : pl.concepto, cat: c ? c.cat : (pl.cat || "otr"), unidad: (c && c.unidad) || "servicio", cant: +pl.cant, pu: c ? precioCat(c) : 0, iva: c ? (c.iva || catOf(c.cat)[3]) : "16", plan: true, auto: true }); });
+  if (srv) (srv.planeado || []).forEach(pl => { if (pl.fromCot) return; const c = S.ventas[pl.catId]; const k = planKey(pl, c); if (lines.some(l => l.key === k)) return; if (sh.length && ["ins:", "svc:", "hora", "express", "dist:", "renta_bomba"].some(x => k.startsWith(x))) return; lines.push({ key: k, concepto: c ? c.nombre : pl.concepto, cat: c ? c.cat : (pl.cat || "otr"), unidad: (c && c.unidad) || "servicio", cant: +pl.cant, pu: c ? precioCat(c) : 0, iva: c ? (ivaDe(c)) : "16", plan: true, auto: true }); });
   lines.forEach(l => { const a = q.ajustes[l.key]; if (a) { if (a.pu !== "" && a.pu != null) { l.puAuto = l.pu; l.pu = +a.pu; l.ajustado = true; } if (a.cant !== "" && a.cant != null) { l.cantAuto = l.cant; l.cant = +a.cant; l.ajustado = true; } if (a.iva) l.iva = a.iva; if (a.unidad) l.unidad = a.unidad; if (a.quitar) l.quitar = true; } });
-  (q.extras || []).forEach(x => lines.push({ key: "x:" + x.id, xid: x.id, concepto: x.concepto, cat: x.cat || "otr", unidad: x.unidad || "servicio", cant: +x.cant || 0, pu: +x.pu || 0, iva: x.iva || catOf(x.cat || "otr")[3], extra: true }));
+  (q.extras || []).forEach(x => lines.push({ key: "x:" + x.id, xid: x.id, concepto: x.concepto, cat: x.cat || "otr", unidad: x.unidad || "servicio", cant: +x.cant || 0, pu: +x.pu || 0, iva: x.ivaManual ? x.iva : ivaLey(x.cat || "otr", x.concepto), extra: true }));
   const act = lines.filter(l => !l.quitar && l.cant);
   const base = { "16": 0, "0": 0, ex: 0 }; act.forEach(l => base[l.iva] = r2((base[l.iva] || 0) + l.cant * l.pu));
   const bruto = r2(base["16"] + base["0"] + base.ex); const dd = q.descuento || {}; let desc = 0;
@@ -1381,6 +1392,7 @@ function cotHTML(ps) {
   const kc = bnd(q, path => { saveCot(q); if (path === "tipo" || path === "pago.metodo") scheduleRender(); });
   const row = l => `<div class="cl ${l.quitar ? "off" : ""}">
       <div class="cl-h"><span><b>${esc(l.concepto)}</b>${l.extra ? ` <span class="pill acc">agregado</span>` : ""}${l.plan ? ` <span class="pill muted">de la cotización previa</span>` : ""}${l.sinCat && !l.extra ? ` <span class="pill warn">sin catálogo</span>` : ""}${l.ajustado ? ` <span class="pill acc">ajustado</span>` : ""}</span><b class="num">${money(l.cant * l.pu)}</b></div>
+      ${l.extra ? `<div class="cl-f"><label style="flex:1 1 100%">Concepto<input class="cell" data-cl="${esc(l.key)}" data-f="concepto" value="${esc(l.concepto)}" style="width:100%!important"></label></div>` : ""}
       <div class="cl-f"><label>Cant.<input class="cell" type="number" min="0" step="0.5" data-cl="${esc(l.key)}" data-f="cant" value="${l.cant}"></label>
         <label>Unidad<input class="cell" list="uni-list" data-cl="${esc(l.key)}" data-f="unidad" value="${esc(l.unidad || "")}" style="width:96px!important"></label>
         <label>Precio unit. sin IVA<input class="cell" type="number" min="0" step="0.01" data-cl="${esc(l.key)}" data-f="pu" value="${l.pu || ""}" placeholder="0.00"></label>
@@ -1413,6 +1425,7 @@ function cotHTML(ps) {
       <div class="card stack"><div class="sec-t">Descuento</div>
         <div class="row" style="align-items:flex-end;flex-wrap:wrap">${F("Tipo", `<select data-desc="modo"><option value="%" ${(q.descuento || {}).modo !== "$" ? "selected" : ""}>Porcentaje (%)</option><option value="$" ${(q.descuento || {}).modo === "$" ? "selected" : ""}>Cantidad fija ($)</option></select>`)}${F((q.descuento || {}).modo === "$" ? "Monto antes de IVA" : "Porcentaje", `<input data-desc="valor" type="number" min="0" step="0.01" inputmode="decimal" style="width:120px" value="${esc((q.descuento || {}).valor || "")}" placeholder="0">`)}${F("Motivo (aparece en el documento)", `<input data-desc="motivo" value="${esc((q.descuento || {}).motivo || "")}" placeholder="Paciente recurrente, convenio…">`)}</div>
         <p class="small muted" style="margin:0">Se aplica al importe antes de IVA y se reparte entre todos los conceptos.</p></div>` : `<div class="empty">Sin conceptos en el periodo. Agrega uno abajo o revisa las fechas.</div>`}
+    ${asignarHTML(c)}
     <h2>Datos para el documento</h2>
     <div class="card fieldgrid">
       ${F("Tipo de documento", CHIPS(kc, q, "tipo", ["Cotización", "Nota de venta"]), "full")}
@@ -1431,7 +1444,7 @@ function cotHTML(ps) {
 }
 document.addEventListener("change", e => {
   const el = e.target.closest("[data-cl]"); if (!el) return; const q = cotDoc(admSel.pid); const key = el.dataset.cl, f = el.dataset.f;
-  if (key.startsWith("x:")) { const x = q.extras.find(z => "x:" + z.id === key); if (x) x[f] = f === "iva" || f === "unidad" ? el.value : +el.value; }
+  if (key.startsWith("x:")) { const x = q.extras.find(z => "x:" + z.id === key); if (x) { x[f] = f === "iva" || f === "unidad" || f === "concepto" ? el.value : +el.value; if (f === "concepto" && x.catId && S.ventas[x.catId] && el.value.trim()) { const cc = S.ventas[x.catId]; if (norm(cc.nombre) !== norm(el.value)) { cc.nombre = el.value.trim(); Store.put("ventas", cc); } } if (f === "iva") x.ivaManual = true; } }
   else { q.ajustes[key] = q.ajustes[key] || {}; q.ajustes[key][f] = f === "iva" || f === "unidad" ? el.value : (el.value === "" ? "" : +el.value); }
   saveCot(q); setTimeout(render, 0);
 });
@@ -1444,34 +1457,34 @@ document.addEventListener("click", e => {
   const dl = e.target.closest("[data-cdel]"); if (dl) { const q = cotDoc(admSel.pid); q.extras = q.extras.filter(x => x.id !== dl.dataset.cdel); saveCot(q); render(); }
 });
 document.addEventListener("change", e => { if (e.target.id === "adm-p") { admSel.pid = e.target.value; admSel.srv = ""; render(); } if (e.target.id === "adm-srv") { admSel.srv = e.target.value; const s = S.config[admSel.srv]; if (s) { admSel.desde = s.inicio; admSel.hasta = s.fin || today(); } render(); } if (e.target.id === "adm-d") { admSel.desde = e.target.value; render(); } if (e.target.id === "adm-h") { admSel.hasta = e.target.value; render(); } });
-const UNIDADES = ["servicio", "visita", "hora", "turno", "día", "consulta", "sesión", "pza", "ampolleta", "frasco", "bolsa", "caja", "juego", "km"];
-const UNI_CAT = { med: "pza", sol: "bolsa", ins: "pza", bom: "pza", ren: "día", enf: "servicio", dom: "visita", mes: "consulta", ter: "sesión", otr: "servicio" };
+const UNIDADES = ["servicio", "visita", "envío", "hora", "turno", "día", "consulta", "sesión", "pza", "ampolleta", "frasco", "bolsa", "caja", "juego", "km"];
+const UNI_CAT = { med: "pza", sol: "bolsa", ins: "pza", bom: "pza", ren: "día", enf: "servicio", dom: "envío", mes: "consulta", ter: "sesión", otr: "servicio" };
 function unidadSug(cat, concepto) {
   const t = norm(concepto || "");
-  const r = [[/\bpor hora\b|\bhoras?\b/, "hora"], [/\bturno/, "turno"], [/\bpor dia\b|\bdias?\b|\bdiari/, "día"], [/\bsesion|\bterapia/, "sesión"], [/\bconsulta|\bvaloracion/, "consulta"], [/\bvisita|\btrayecto|\btraslado|\bexpress/, "visita"], [/\bkm\b|kilometr/, "km"], [/\bampolleta|\bamp\b|\bampula/, "ampolleta"], [/\bfrasco|\bvial/, "frasco"], [/\bbolsa|\bsolucion/, "bolsa"], [/\bcaja\b/, "caja"], [/\bkit\b|\bjuego\b|\bequipo de/, "juego"]].find(([re]) => re.test(t));
+  const r = [[/\bpor hora\b|\bhoras?\b/, "hora"], [/\bturno/, "turno"], [/\bpor dia\b|\bdias?\b|\bdiari/, "día"], [/\bsesion|\bterapia/, "sesión"], [/\bconsulta|\bvaloracion/, "consulta"], [/\benvio/, "envío"], [/\bvisita|\btrayecto|\btraslado|\bexpress/, "visita"], [/\bkm\b|kilometr/, "km"], [/\bampolleta|\bamp\b|\bampula/, "ampolleta"], [/\bfrasco|\bvial/, "frasco"], [/\bbolsa|\bsolucion/, "bolsa"], [/\bcaja\b/, "caja"], [/\bkit\b|\bjuego\b|\bequipo de/, "juego"]].find(([re]) => re.test(t));
   return r ? r[1] : (UNI_CAT[cat] || "servicio");
 }
 const uniInput = (k, o, extra = "") => I(k, o, "unidad", 'list="uni-list" autocomplete="off" ' + extra) + `<datalist id="uni-list">${UNIDADES.map(u => `<option value="${u}">`).join("")}</datalist>`;
 function openCotAdd() {
   const xs = catalogo().sort((a, b) => a.cat.localeCompare(b.cat) || a.nombre.localeCompare(b.nombre));
   const o = { catId: "", concepto: "", cat: "otr", cant: 1, pu: "", iva: "16", unidad: "servicio" }; let uniMan = false;
-  const k = bnd(o, path => { if (path === "unidad") { uniMan = !!String(o.unidad).trim(); return; } if ((path === "cat" || path === "concepto") && !uniMan) { o.unidad = unidadSug(o.cat, o.concepto); const u = $("#ca-uni"); if (u) u.value = o.unidad; } if (path === "cat") { o.iva = catOf(o.cat)[3]; const s = document.querySelector('#modal-root select[data-b="iva"]'); if (s) s.value = o.iva; } });
+  const k = bnd(o, path => { if (path === "unidad") { uniMan = !!String(o.unidad).trim(); return; } if ((path === "cat" || path === "concepto") && !uniMan) { o.unidad = unidadSug(o.cat, o.concepto); const u = $("#ca-uni"); if (u) u.value = o.unidad; } if (path === "cat") { o.iva = ivaLey(o.cat); const s = document.querySelector('#modal-root select[data-b="iva"]'); if (s) s.value = o.iva; } });
   modal(`<h2>Agregar concepto</h2>
     ${xs.length ? F("Del catálogo", `<select id="ca-cat"><option value="">Elegir…</option>${CATS.map(cg => { const ys = xs.filter(x => x.cat === cg[0]); return ys.length ? `<optgroup label="${esc(cg[1])}">${ys.map(x => `<option value="${x.id}">${esc(x.nombre)} · ${money(precioCat(x))}</option>`).join("")}</optgroup>` : ""; }).join("")}</select>`) : ""}
     <div class="fieldgrid">${F("Concepto", I(k, o, "concepto", 'id="ca-con" placeholder="Ej. Consulta de médico especialista a domicilio"'), "full")}${F("Categoría", SEL(k, o, "cat", CATS.map(c => [c[0], c[1]])))}${F("Unidad", uniInput(k, o, 'id="ca-uni"'))}${F("Cantidad", I(k, o, "cant", 'type="number" min="0" step="0.5"'))}${F("Precio unitario sin IVA", I(k, o, "pu", 'id="ca-pu" type="number" min="0" step="0.01"'))}${F("IVA", SEL(k, o, "iva", IVAS))}</div>
     <div class="row"><button class="btn" id="ca-ok">Agregar</button><button class="btn quiet" data-close>Cancelar</button></div>`);
-  const sel = $("#ca-cat"); if (sel) sel.onchange = () => { const c = S.ventas[sel.value]; if (!c) return; Object.assign(o, { catId: c.id, concepto: c.nombre, cat: c.cat, unidad: c.unidad || unidadSug(c.cat, c.nombre), pu: precioCat(c), iva: c.iva || catOf(c.cat)[3] }); uniMan = false; $("#ca-con").value = o.concepto; $("#ca-pu").value = o.pu; document.querySelector('#modal-root select[data-b="cat"]').value = o.cat; document.querySelector('#modal-root select[data-b="iva"]').value = o.iva; document.querySelector('#modal-root input[data-b="unidad"]').value = o.unidad; };
-  $("#ca-ok").onclick = () => { if (!String(o.concepto).trim()) return toast("Escribe el concepto"); if (!o.catId) { const c0 = findCat("", o.concepto) || catNuevo(o.concepto, o.cat || "otr", o.unidad || unidadSug(o.cat, o.concepto), +o.pu || "", o.iva); o.catId = c0.id; } const q = cotDoc(admSel.pid); q.extras = q.extras || []; q.extras.push({ id: uid("x"), catId: o.catId, concepto: o.concepto.trim(), cat: o.cat || "otr", unidad: o.unidad, cant: +o.cant || 1, pu: +o.pu || 0, iva: o.iva || "16", por: APP.user, t: iso() }); saveCot(q); closeModal(); render(); toast("Concepto agregado"); };
+  const sel = $("#ca-cat"); if (sel) sel.onchange = () => { const c = S.ventas[sel.value]; if (!c) return; Object.assign(o, { catId: c.id, concepto: c.nombre, cat: c.cat, unidad: c.unidad || unidadSug(c.cat, c.nombre), pu: precioCat(c), iva: ivaDe(c) }); uniMan = false; $("#ca-con").value = o.concepto; $("#ca-pu").value = o.pu; document.querySelector('#modal-root select[data-b="cat"]').value = o.cat; document.querySelector('#modal-root select[data-b="iva"]').value = o.iva; document.querySelector('#modal-root input[data-b="unidad"]').value = o.unidad; };
+  $("#ca-ok").onclick = () => { if (!String(o.concepto).trim()) return toast("Escribe el concepto"); if (!o.catId) { const c0 = findCat("", o.concepto) || catNuevo(o.concepto, o.cat || "otr", o.unidad || unidadSug(o.cat, o.concepto), +o.pu || "", o.iva); o.catId = c0.id; } const q = cotDoc(admSel.pid); q.extras = q.extras || []; q.extras.push({ id: uid("x"), catId: o.catId, concepto: o.concepto.trim(), cat: o.cat || "otr", unidad: o.unidad, cant: +o.cant || 1, pu: +o.pu || 0, iva: o.iva || "16", ivaManual: (o.iva || "16") !== ivaLey(o.cat || "otr", o.concepto), por: APP.user, t: iso() }); saveCot(q); closeModal(); render(); toast("Concepto agregado"); };
 }
 
 /* --- agregar producto o servicio rápido (estilo punto de venta) --- */
 function catGuess(nombre) {
   const t = norm(nombre || "");
-  const r = [[/\bkit\b|\bequipo de\b|jeringa|gasa|cateter|catéter|aguja|sonda|guante|aposito|venoclisis|llave de 3|tegaderm|micropore|torunda|alcohol|parche|bolsa recolectora|cubrebocas|electrodo/, "ins"], [/elastomer/, "bom"], [/\brenta\b|concentrador|cama hospital|silla de ruedas|tanque/, "ren"], [/consulta|valoracion medica|medico|médico|especialista/, "mes"], [/terapia|sesion|fisio|nutri|psicolog/, "ter"], [/solucion|suero|salina|hartmann|glucosad|fisiologica/, "sol"], [/\bmg\b|\bml\b|ampolleta|tableta|capsula|\bamp\b|frasco ampula|morfina|ondansetron|ketorolaco|omeprazol|ceftriaxona|dexametasona|haloperidol|midazolam|buprenorfina/, "med"], [/traslado|trayecto|\bvisita\b|\bkm\b|kilometr/, "dom"], [/hora|turno|aplicacion|curacion|canalizacion|enfermer|bano|baño|cuidad|express|hidratacion|quimioterapia/, "enf"]].find(([re]) => re.test(t));
+  const r = [[/\bkit\b|\bequipo de\b|jeringa|gasa|cateter|catéter|aguja|sonda|guante|aposito|venoclisis|llave de 3|tegaderm|micropore|torunda|alcohol|parche|bolsa recolectora|cubrebocas|electrodo/, "ins"], [/elastomer/, "bom"], [/\brenta\b|concentrador|cama hospital|silla de ruedas|tanque/, "ren"], [/consulta|valoracion medica|medico|médico|especialista/, "mes"], [/terapia|sesion|fisio|nutri|psicolog/, "ter"], [/solucion|suero|salina|hartmann|glucosad|fisiologica/, "sol"], [/\bmg\b|\bml\b|ampolleta|tableta|capsula|\bamp\b|frasco ampula|morfina|ondansetron|ketorolaco|omeprazol|ceftriaxona|dexametasona|haloperidol|midazolam|buprenorfina/, "med"], [/envio|traslado|trayecto|\bvisita\b|\bkm\b|kilometr/, "dom"], [/hora|turno|aplicacion|curacion|canalizacion|enfermer|bano|baño|cuidad|express|hidratacion|quimioterapia/, "enf"]].find(([re]) => re.test(t));
   return r ? r[1] : "otr";
 }
 function catNuevo(nombre, cat, unidad, pu, iva, extra) {
-  const m = catOf(cat)[2]; const c = Object.assign({ id: "cat_" + uid("c").slice(-10), doc: "cat", nombre: nombre.trim(), cat, unidad, clave: "", codigo: "", iva: iva || catOf(cat)[3], costo: "", margen: "", precioFinal: "", honorario: "", cuota: "", precio: "", creadoPor: APP.user, creadoEn: iso() }, extra || {});
+  const m = catOf(cat)[2]; const c = Object.assign({ id: "cat_" + uid("c").slice(-10), doc: "cat", nombre: nombre.trim(), cat, unidad, clave: "", codigo: "", iva: iva || ivaLey(cat), costo: "", margen: "", precioFinal: "", honorario: "", cuota: "", precio: "", creadoPor: APP.user, creadoEn: iso() }, extra || {});
   if (m === "producto" || m === "servicio") c.precioFinal = pu; else c.precio = pu;
   Store.put("ventas", c); return c;
 }
@@ -1493,13 +1506,13 @@ function qaAgregar(o) {
   let c = o.tipo === "cat" ? S.ventas[o.id] : null;
   if (o.tipo === "item") { const it = S.items[o.id]; c = catNuevo(it.nombre, catFromItem(it), it.unidad || "pza", "", "", { costo: it.precio || "", codigo: it.codigo || "" }); }
   const ex = q.extras.find(x => c && x.catId === c.id);
-  if (ex) ex.cant = r2((+ex.cant || 0) + n); else q.extras.push({ id: uid("x"), catId: c.id, concepto: c.nombre, cat: c.cat, unidad: c.unidad || unidadSug(c.cat, c.nombre), cant: n, pu: precioCat(c), iva: c.iva || catOf(c.cat)[3], por: APP.user, t: iso() });
+  if (ex) ex.cant = r2((+ex.cant || 0) + n); else q.extras.push({ id: uid("x"), catId: c.id, concepto: c.nombre, cat: c.cat, unidad: c.unidad || unidadSug(c.cat, c.nombre), cant: n, pu: precioCat(c), iva: ivaDe(c), por: APP.user, t: iso() });
   saveCot(q); qaTxt = ""; qaSel = 0; render(); setTimeout(() => { const i = $("#qa-q"); if (i) i.focus(); }, 30);
   toast((ex ? "Cantidad actualizada: " : "Agregado: ") + c.nombre + (precioCat(c) ? "" : " · captura su precio"));
 }
 function qaCrear() {
-  const nombre = qaTxt.trim(); const cat = catGuess(nombre); const o = { nombre, cat, unidad: unidadSug(cat, nombre), pu: "", iva: catOf(cat)[3] }; let uniMan = false;
-  const k = bnd(o, p => { if (p === "unidad") uniMan = true; if (p === "cat") { o.iva = catOf(o.cat)[3]; $('#modal-root select[data-b="iva"]').value = o.iva; if (!uniMan) { o.unidad = unidadSug(o.cat, o.nombre); $("#qn-uni").value = o.unidad; } } });
+  const nombre = qaTxt.trim(); const cat = catGuess(nombre); const o = { nombre, cat, unidad: unidadSug(cat, nombre), pu: "", iva: ivaLey(cat) }; let uniMan = false;
+  const k = bnd(o, p => { if (p === "unidad") uniMan = true; if (p === "cat") { o.iva = ivaLey(o.cat); $('#modal-root select[data-b="iva"]').value = o.iva; if (!uniMan) { o.unidad = unidadSug(o.cat, o.nombre); $("#qn-uni").value = o.unidad; } } });
   modal(`<h2>Nuevo producto o servicio</h2><p class="small muted">Se guarda en el catálogo y queda disponible para todas las cotizaciones.</p>
     <div class="fieldgrid">${F("Nombre", I(k, o, "nombre"), "full")}${F("Categoría", SEL(k, o, "cat", CATS.map(c => [c[0], c[1]])), "full")}${F("Unidad", uniInput(k, o, 'id="qn-uni"'))}${F("Precio al cliente sin IVA", I(k, o, "pu", 'id="qn-pu" type="number" min="0" step="0.01" inputmode="decimal"'))}${F("IVA", SEL(k, o, "iva", IVAS))}</div>
     <div class="row"><button class="btn" id="qn-ok">Guardar y agregar</button><button class="btn quiet" data-close>Cancelar</button></div>`);
@@ -1517,6 +1530,61 @@ document.addEventListener("click", e => {
   if (e.target.closest("[data-qa-new]")) qaCrear();
 });
 
+/* --- asignar la cotización a una enfermera: ve los insumos (sin precios) para cargarlos de su inventario --- */
+const PROD_CATS = ["ins", "med", "sol", "bom"];
+function asignarHTML(c) {
+  const sv = c.srv || srvOpenFor(c.p.id); const ns = enfermeras().map(n => n.nombre).sort();
+  return `<h2>Asignar a enfermera</h2>
+    <div class="card stack">
+      ${sv ? `<div class="small">Servicio <b>${esc(sv.folio || "")}</b> · ${sv.enfermera ? "asignado a <b>" + esc(sv.enfermera) + "</b>" : "sin enfermera"} · ${esc(srvEstado(sv))}</div>` : ""}
+      <p class="small muted" style="margin:0">La enfermera verá este servicio en su inicio y, dentro de su turno, la lista de insumos y medicamentos de esta cotización (sin precios) para descontarlos de su inventario con un clic.</p>
+      <div class="fieldgrid">${F("Enfermera", `<select id="as-enf"><option value="">Elegir…</option>${ns.map(n => `<option ${sv && norm(sv.enfermera) === norm(n) ? "selected" : ""}>${esc(n)}</option>`).join("")}</select>`)}${F("Fecha de inicio", `<input id="as-ini" type="date" value="${esc((sv && sv.inicio) || today())}">`)}</div>
+      <div class="row"><button class="btn" id="as-ok">${sv && sv.enfermera ? "Actualizar asignación" : "Asignar a la enfermera"}</button>${sv && sv.enfermera ? `<a class="btn ghost" target="_blank" rel="noopener" href="${srvWaNurse(c.p, "Servicio " + (sv.folio || "") + " · inicia " + fmtD(sv.inicio))}">WhatsApp a la enfermera</a>` : ""}</div>
+    </div>`;
+}
+document.addEventListener("click", e => {
+  if (e.target.id !== "as-ok") return;
+  const enf = $("#as-enf").value, ini = $("#as-ini").value || today(); if (!enf) return toast("Elige a la enfermera");
+  const c = cotizacion(admSel.pid, admSel.desde, admSel.hasta); if (!c) return;
+  const plan = c.act.filter(l => !l.plan).map(l => { const cc = l.catId && S.ventas[l.catId]; return { catId: l.catId || "", concepto: l.concepto, cat: l.cat, cant: l.cant, unidad: l.unidad || "", codigo: (cc && cc.codigo) || "", fromCot: true }; });
+  let sv = c.srv || srvOpenFor(c.p.id); const q0 = c.q; const cl = q0.cliente || {};
+  const contacto = { responsable: cl.nombre || "", tel: cl.tel || "", domicilio: cl.domicilio || "" };
+  if (sv) { sv.enfermera = enf; sv.inicio = ini; sv.planeado = (sv.planeado || []).filter(x => !x.fromCot).concat(plan); sv.contacto = contacto; sv.asignadoPor = APP.user; sv.asignadoEn = iso(); Store.put("config", sv); }
+  else {
+    sv = { id: "srv_" + uid("s").slice(-10), doc: "servicio", cotPrevia: true, estado: "Programado", folio: "SRV-" + today().slice(2).replace(/-/g, "") + "-" + String(srvs().length + 1).padStart(3, "0"), creadoEn: iso(), creadoPor: APP.user, pid: c.p.id, enfermera: enf, inicio: ini, fin: "", notas: "", planeado: plan, contacto, asignadoPor: APP.user, asignadoEn: iso() };
+    sv.cotId = q0.id; Store.put("config", sv);
+  }
+  render(); toast("Asignado a " + enf + ". Ya lo ve en su plataforma.");
+});
+
+/* --- en el turno: insumos de la cotización para cargar del inventario --- */
+function insCotHTML(s, ed) {
+  const sv = s.servicioId && S.config[s.servicioId]; if (!sv) return "";
+  const prods = (sv.planeado || []).filter(x => PROD_CATS.includes(x.cat)); if (!prods.length) return "";
+  const usados = {}; srvShifts(sv).forEach(t => (t.insumos || []).forEach(x => { const k = norm(x.nombre); usados[k] = (usados[k] || 0) + (+x.cantidad || 0); }));
+  const mine = itemsOf(APP.user);
+  const match = x => mine.filter(i => (x.codigo && i.codigo === x.codigo) || norm(i.nombre) === norm(x.concepto)).filter(i => disponible(i) > 0 && daysTo(i.caducidad) >= 0).sort((a, b) => (a.caducidad || "9").localeCompare(b.caducidad || "9"))[0];
+  const rows = prods.map((x, i) => { const u = usados[norm(x.concepto)] || 0; const falta = Math.max(0, r2(x.cant - u)); const it = match(x); return { x, i, u, falta, it }; });
+  const pend = rows.filter(r => r.falta > 0);
+  return `<div class="card stack" style="border-left:4px solid var(--accent)"><div class="row between"><div class="sec-t">Insumos de la cotización · ${esc(sv.folio || "")}</div>${ed && pend.some(r => r.it) ? `<button class="btn sm" data-ic-all="${s.id}">Cargar todos de mi inventario</button>` : ""}</div>
+    <div class="list">${rows.map(r => `<div class="it small"><span><b>${r.x.cant}</b> ${esc(r.x.unidad || "")} × ${esc(r.x.concepto)}${r.u ? ` <span class="muted">· usados ${r.u}</span>` : ""}</span><span>${!r.falta ? `<span class="pill ok">Completo</span>` : !ed ? `<span class="pill warn">Faltan ${r.falta}</span>` : r.it ? `<button class="btn ghost sm" data-ic="${r.i}">Usar ${Math.min(r.falta, disponible(r.it))} de mi inventario</button>` : `<span class="pill warn">No está en tu inventario</span> <button class="link small" data-ic-libre="${r.i}">registrar sin descontar</button>`}</span></div>`).join("")}</div>
+    <p class="small muted" style="margin:0">Se apartan de tu inventario y se descuentan cuando Administración marca el servicio cumplido.</p></div>`;
+}
+function icUsar(s, idx, libre) {
+  const sv = S.config[s.servicioId]; const prods = (sv.planeado || []).filter(x => PROD_CATS.includes(x.cat)); const x = prods[idx]; if (!x) return 0;
+  const usados = srvShifts(sv).flatMap(t => t.insumos || []).filter(y => norm(y.nombre) === norm(x.concepto)).reduce((a, y) => a + (+y.cantidad || 0), 0);
+  const falta = Math.max(0, r2(x.cant - usados)); if (!falta) return 0;
+  if (libre) { s.insumos.push({ id: uid("n"), nombre: x.concepto, cantidad: falta, libre: true, por: APP.user, t: iso() }); audit(s, "Usó " + falta + " × " + x.concepto + " (de la cotización, fuera de inventario)"); return falta; }
+  const it = itemsOf(APP.user).filter(i => ((x.codigo && i.codigo === x.codigo) || norm(i.nombre) === norm(x.concepto)) && disponible(i) > 0 && daysTo(i.caducidad) >= 0).sort((a, b) => (a.caducidad || "9").localeCompare(b.caducidad || "9"))[0]; if (!it) return 0;
+  const n = Math.min(falta, disponible(it)); s.insumos.push({ id: uid("n"), itemId: it.id, nombre: it.nombre, lote: it.lote || "", cantidad: n, por: APP.user, t: iso() }); audit(s, "Usó " + n + " × " + it.nombre + " (de la cotización; apartado)"); return n;
+}
+document.addEventListener("click", e => {
+  const a = e.target.closest("[data-ic]"), l = e.target.closest("[data-ic-libre]"), all = e.target.closest("[data-ic-all]"); if (!a && !l && !all) return;
+  const s = S.shifts[APP.r.sid]; if (!s) return;
+  if (all) { const sv = S.config[s.servicioId]; let k = 0; (sv.planeado || []).filter(x => PROD_CATS.includes(x.cat)).forEach((x, i) => { if (icUsar(s, i, false)) k++; }); Store.put("shifts", s); render(); toast(k ? k + " insumo(s) cargados de tu inventario" : "No hay insumos de tu inventario para cargar"); return; }
+  const n = icUsar(s, +(a || l).dataset[a ? "ic" : "icLibre"], !!l); Store.put("shifts", s); render(); if (n) toast("Registrado");
+});
+
 /* --- catálogo --- */
 let catFilter = "";
 function catalogoHTML() {
@@ -1524,7 +1592,9 @@ function catalogoHTML() {
   const items = Object.values(S.items); const sinCat = [...new Map(items.filter(i => !findCat("", i.nombre, i.codigo)).map(i => [norm(i.nombre), i])).values()];
   const shown = catFilter ? xs.filter(x => x.cat === catFilter) : xs; const faltan = xs.length ? catFaltan() : [];
   return `<div class="stack">
-    ${faltan.length ? `<div class="alert warn row between"><span>Faltan conceptos para cotizar <b>Enfermería Express</b> y <b>Enfermera cuidadora</b>: ${faltan.map(x => esc(x[0])).join(", ")}.</span><button class="btn sm" id="cat-nuevos">Agregarlos</button></div>` : ""}
+    <div class="card stack"><div class="row between"><div class="sec-t">IVA automático según la ley</div></div>
+      <p class="small muted" style="margin:0">Medicamentos y soluciones: tasa 0 %. Venta de sillas de ruedas, andaderas, bastones, prótesis y órtesis: tasa 0 %. Consulta médica: exenta solo si factura un médico persona física o una sociedad civil de médicos; si factura una empresa, 16 %. Enfermería, insumos, renta de equipo, terapias, envíos y lo demás: 16 %. El IVA se pone solo; si quieres omitirlo, cámbialo a "Exento" en el renglón de la cotización o en el concepto del catálogo. Quién emite se elige en Empresa y pagos (hoy: ${esc((EMISORES.find(x => x[0] === (e.emisor || "pm")) || EMISORES[0])[1])}). Confírmalo con tu contador.</p></div>
+    ${faltan.length ? `<div class="alert warn row between"><span>Faltan conceptos nuevos en el catálogo: ${faltan.map(x => esc(x[0])).join(", ")}.</span><button class="btn sm" id="cat-nuevos">Agregarlos</button></div>` : ""}
     <div class="card stack"><div class="row between"><div><div class="sec-t">Margen sobre costo</div><p class="small muted">A los productos se les suma este porcentaje al costo de compra (rango sugerido de mercado ${e.margenMin}–${e.margenMax} %). Cada producto puede tener su propio margen y un precio final ajustado.</p></div>
       <div class="row"><input id="mg-g" type="number" min="0" max="200" step="1" value="${e.margen}" style="width:90px"> <span>%</span></div></div></div>
     ${!xs.length ? `<div class="card stack"><b>El catálogo está vacío.</b><p class="small muted">Crea el catálogo base con los servicios de enfermería, horas de cuidado, trayectos, bombas, médico especialista y terapia física. Después solo capturas los precios.</p><div class="row"><button class="btn" id="cat-seed">Crear catálogo base</button></div></div>` : ""}
@@ -1548,9 +1618,9 @@ document.addEventListener("click", e => {
 function openCat(id, pre) {
   const ex = id ? S.ventas[id] : null; const em = empresa();
   const o = ex ? clone(ex) : Object.assign({ doc: "cat", nombre: "", cat: "ins", unidad: "pza", codigo: "", costo: "", margen: "", precioFinal: "", honorario: "", cuota: "", precio: "", iva: "" }, pre || {});
-  if (!o.iva) o.iva = catOf(o.cat)[3]; let uniMan = !!ex;
+  if (!o.iva) o.iva = ivaLey(o.cat); let uniMan = !!ex;
   const draw = () => {
-    const k = bnd(o, (path) => { if (path === "unidad") { uniMan = !!String(o.unidad).trim(); return; } if (path === "cat") { o.iva = catOf(o.cat)[3]; if (!uniMan) o.unidad = unidadSug(o.cat, o.nombre); draw(); } else { if (path === "nombre" && !uniMan) { o.unidad = unidadSug(o.cat, o.nombre); const u = $("#cat-uni"); if (u) u.value = o.unidad; } upd(); } }); const m = catOf(o.cat)[2];
+    const k = bnd(o, (path) => { if (path === "unidad") { uniMan = !!String(o.unidad).trim(); return; } if (path === "cat") { o.iva = ivaLey(o.cat); if (!uniMan) o.unidad = unidadSug(o.cat, o.nombre); draw(); } else { if (path === "nombre" && !uniMan) { o.unidad = unidadSug(o.cat, o.nombre); const u = $("#cat-uni"); if (u) u.value = o.unidad; } upd(); } }); const m = catOf(o.cat)[2];
     modal(`<h2>${ex ? "Editar concepto" : "Nuevo concepto"}</h2>
       <div class="fieldgrid">${F("Concepto", I(k, o, "nombre", 'placeholder="Ej. Bomba elastomérica 100 ml"'), "full")}${F("Categoría", SEL(k, o, "cat", CATS.map(c => [c[0], c[1]])), "full")}${F("Unidad", uniInput(k, o, 'id="cat-uni"'))}${m === "producto" ? F("Código de barras (opcional)", I(k, o, "codigo", 'inputmode="numeric"')) : ""}
       ${m === "producto" ? F("Costo de compra (sin IVA)", I(k, o, "costo", 'type="number" min="0" step="0.01" inputmode="decimal"')) + F(`Margen % (general ${em.margen} %)`, I(k, o, "margen", `type="number" min="0" step="1" placeholder="${em.margen}"`)) + `<div class="f full"><span>Precio sugerido</span><div class="kpi" style="padding:10px 14px"><b id="cat-sug" style="font-size:1.3rem"></b></div></div>` + F("Precio final ajustado (opcional)", I(k, o, "precioFinal", 'type="number" min="0" step="0.01" placeholder="Deja vacío para usar el sugerido"'), "full") : ""}
@@ -1560,21 +1630,21 @@ function openCat(id, pre) {
       <div class="card row between"><span>Precio al cliente</span><b id="cat-tot"></b></div>
       <div class="row"><button class="btn" id="cat-ok">Guardar</button>${ex ? `<button class="btn danger" id="cat-del">Eliminar</button>` : ""}<button class="btn quiet" data-close>Cancelar</button></div>`);
     upd();
-    $("#cat-ok").onclick = () => { if (!String(o.nombre).trim()) return toast("Escribe el concepto"); const mg = o.margen === "" ? em.margen : +o.margen; if (m === "producto" && o.margen !== "" && (mg < em.margenMin || mg > em.margenMax)) toast("Aviso: margen fuera del rango " + em.margenMin + "–" + em.margenMax + " %"); const x = Object.assign(ex || { id: "cat_" + uid("c").slice(-10), creadoEn: iso(), creadoPor: APP.user }, o); Store.put("ventas", x); closeModal(); render(); toast("Precio guardado"); };
+    $("#cat-ok").onclick = () => { if (!String(o.nombre).trim()) return toast("Escribe el concepto"); o.ivaManual = o.iva !== ivaLey(o.cat, o.nombre); const mg = o.margen === "" ? em.margen : +o.margen; if (m === "producto" && o.margen !== "" && (mg < em.margenMin || mg > em.margenMax)) toast("Aviso: margen fuera del rango " + em.margenMin + "–" + em.margenMax + " %"); const x = Object.assign(ex || { id: "cat_" + uid("c").slice(-10), creadoEn: iso(), creadoPor: APP.user }, o); Store.put("ventas", x); closeModal(); render(); toast("Precio guardado"); };
     if (ex) $("#cat-del").onclick = () => confirmBox("¿Eliminar " + ex.nombre + " del catálogo?", () => { ex.borrado = true; Store.put("ventas", ex); closeModal(); render(); });
   };
   const upd = () => { const pu = precioCat(o); const iv = o.iva || "16"; const sug = $("#cat-sug"); if (sug) { const mg = o.margen === "" || o.margen == null ? em.margen : +o.margen; sug.textContent = +o.costo ? money(Math.ceil(+o.costo * (1 + mg / 100))) : "—"; } const t = $("#cat-tot"); if (t) t.textContent = money(pu) + " + " + ivaTxt(iv) + " = " + money(pu * (iv === "16" ? 1.16 : 1)); };
   draw();
 }
-const CAT_NUEVOS = [["Enfermería Express (hasta 4 h)", "enf", "visita", "express"], ["Hora adicional de Enfermería Express", "enf", "hora", "express_hx"], ["Complemento por alta complejidad (por hora)", "enf", "hora", "hora_comp"]];
+const CAT_NUEVOS = [["Enfermería Express (hasta 4 h)", "enf", "visita", "express"], ["Hora adicional de Enfermería Express", "enf", "hora", "express_hx"], ["Complemento por alta complejidad (por hora)", "enf", "hora", "hora_comp"], ["Costo de envío de insumos", "dom", "envío", "envio"]];
 function catFaltan() { return CAT_NUEVOS.filter(x => !catalogo().some(c => c.clave === x[3])); }
-document.addEventListener("click", e => { if (e.target.id === "cat-nuevos") { catFaltan().forEach(([nombre, cat, unidad, clave]) => Store.put("ventas", { id: "cat_" + uid("c").slice(-10), doc: "cat", nombre, cat, unidad, clave, iva: catOf(cat)[3], costo: "", margen: "", precioFinal: "", honorario: "", cuota: "", precio: "" })); render(); toast("Conceptos agregados. Captura sus precios."); } });
+document.addEventListener("click", e => { if (e.target.id !== "cat-iva") return; const xs = catalogo().filter(c => (c.iva || "") !== ivaLey(c.cat, c.nombre)); if (!xs.length) return toast("Todo el catálogo ya tiene el IVA de ley"); confirmBox("Se cambiará el IVA de " + xs.length + " concepto(s) para que coincida con la ley. ¿Continuar?", () => { xs.forEach(c => { c.iva = ivaLey(c.cat, c.nombre); Store.put("ventas", c); }); render(); toast("IVA actualizado en " + xs.length + " concepto(s)"); }); });
+document.addEventListener("click", e => { if (e.target.id === "cat-nuevos") { catFaltan().forEach(([nombre, cat, unidad, clave]) => Store.put("ventas", { id: "cat_" + uid("c").slice(-10), doc: "cat", nombre, cat, unidad, clave, iva: ivaLey(cat), costo: "", margen: "", precioFinal: "", honorario: "", cuota: "", precio: "" })); render(); toast("Conceptos agregados. Captura sus precios."); } });
 function seedCatalog() {
   if (catalogo().length) return;
-  const mk = (nombre, cat, unidad, clave, extra) => Store.put("ventas", Object.assign({ id: "cat_" + uid("c").slice(-10), doc: "cat", nombre, cat, unidad, clave, iva: catOf(cat)[3], costo: "", margen: "", precioFinal: "", honorario: "", cuota: "", precio: "", creadoEn: iso(), creadoPor: APP.user }, extra || {}));
+  const mk = (nombre, cat, unidad, clave, extra) => Store.put("ventas", Object.assign({ id: "cat_" + uid("c").slice(-10), doc: "cat", nombre, cat, unidad, clave, iva: ivaLey(cat), costo: "", margen: "", precioFinal: "", honorario: "", cuota: "", precio: "", creadoEn: iso(), creadoPor: APP.user }, extra || {}));
   SERVICIOS.filter(s => s !== "Otro").forEach(s => mk(s, "enf", "servicio", "svc:" + s));
   CAT_NUEVOS.forEach(x => mk(...x)); mk("Enfermera cuidadora · atención continua (por hora)", "enf", "hora", "hora");
-  DIST.forEach(d => mk("Atención a domicilio · trayecto " + distLabel(d[0]), "dom", "visita", "dist:" + d[0]));
   mk("Renta de bomba de infusión eléctrica (por turno)", "ren", "turno", "renta_bomba");
   mk("Bomba elastomérica", "bom", "pza", "");
   mk("Consulta de médico especialista a domicilio", "mes", "consulta", "");
@@ -1591,7 +1661,7 @@ function empresaHTML() {
   return `<div class="stack">
     ${falta.length ? `<div class="alert warn">Falta ${falta.map(f => ({ razon: "la razón social", rfc: "el RFC" })[f]).join(" y ")}: aparecen en cada cotización y nota de venta.</div>` : ""}
     <div class="card stack"><div class="sec-t">Datos del emisor (aparecen en el PDF)</div><div class="fieldgrid">
-      ${F("Razón social", I(k, e, "razon", 'placeholder="Como aparece en la Constancia de Situación Fiscal"'), "full")}${F("Nombre comercial", I(k, e, "comercial"))}${F("RFC (solo para facturar; no se imprime)", I(k, e, "rfc", 'style="text-transform:uppercase"'))}${F("Régimen fiscal", I(k, e, "regimen", 'placeholder="Ej. 601 General de Ley Personas Morales"'), "full")}
+      ${F("Razón social", I(k, e, "razon", 'placeholder="Como aparece en la Constancia de Situación Fiscal"'), "full")}${F("Nombre comercial", I(k, e, "comercial"))}${F("RFC (solo para facturar; no se imprime)", I(k, e, "rfc", 'style="text-transform:uppercase"'))}${F("Quién emite los documentos (define el IVA de ley)", SEL(k, e, "emisor", EMISORES), "full")}${F("Régimen fiscal", I(k, e, "regimen", 'placeholder="Ej. 601 General de Ley Personas Morales"'), "full")}
       ${F("Calle y número", I(k, e, "calle"))}${F("Colonia", I(k, e, "colonia"))}${F("Código postal", I(k, e, "cp", 'inputmode="numeric"'))}${F("Ciudad", I(k, e, "ciudad"))}${F("Estado", I(k, e, "estado"))}
       ${F("Teléfono", I(k, e, "tel", 'type="tel"'))}${F("Correo", I(k, e, "correo", 'type="email"'))}${F("Sitio web", I(k, e, "web"))}
       ${F("Aviso de funcionamiento / licencia sanitaria (COFEPRIS)", I(k, e, "avisoFunc", 'placeholder="Número, si aplica"'), "full")}
@@ -1675,7 +1745,9 @@ function cotPDFBlob(c, folio) {
   });
   y += bh + 14;
   // conceptos
-  const body = []; CATS.forEach(cg => { const ls = c.act.filter(l => l.cat === cg[0]); if (!ls.length) return; body.push([{ content: cg[1].toUpperCase(), colSpan: 6, styles: { halign: "left", textColor: GOLD, fontStyle: "bold", fontSize: 7.5, lineColor: LINE, lineWidth: { bottom: .8 }, cellPadding: { top: 5, bottom: 4, left: 6, right: 6 } } }]); ls.forEach(l => body.push([String(l.cant), l.unidad || "", pz(l.concepto), money(l.pu), ivaTxt(l.iva), money(l.cant * l.pu)])); });
+  const body = []; CATS.forEach(cg => { let ls = c.act.filter(l => l.cat === cg[0]); if (!ls.length) return;
+    if (cg[0] === "dom") { const tr = ls.filter(l => /trayecto|traslado|km\b/i.test(l.concepto)); if (tr.length) { const imp = r2(tr.reduce((a, l) => a + l.cant * l.pu, 0)), n = r2(tr.reduce((a, l) => a + +l.cant, 0)); const igual = tr.every(l => l.pu === tr[0].pu && l.iva === tr[0].iva); const iv = tr.every(l => l.iva === tr[0].iva) ? tr[0].iva : "16"; ls = [igual ? { cant: n, unidad: "visita", concepto: "Atención a domicilio", pu: tr[0].pu, iva: iv } : { cant: 1, unidad: "servicio", concepto: "Atención a domicilio (" + n + " visita" + (n === 1 ? "" : "s") + ")", pu: imp, iva: iv }].concat(ls.filter(l => !tr.includes(l))); } }
+    body.push([{ content: cg[1].toUpperCase(), colSpan: 6, styles: { halign: "left", textColor: GOLD, fontStyle: "bold", fontSize: 7.5, lineColor: LINE, lineWidth: { bottom: .8 }, cellPadding: { top: 5, bottom: 4, left: 6, right: 6 } } }]); ls.forEach(l => body.push([String(l.cant), l.unidad || "", pz(l.concepto), money(l.pu), ivaTxt(l.iva), money(l.cant * l.pu)])); });
   doc.autoTable({ startY: y, margin: { left: M, right: M, bottom: 50, top: 50 }, rowPageBreak: "avoid", theme: "plain", styles: { font: "helvetica", fontSize: 8.5, cellPadding: { top: 5, bottom: 5, left: 6, right: 6 }, textColor: INK, lineColor: LINE, lineWidth: { bottom: .4 } }, headStyles: { fillColor: SOFT, textColor: NAVY, fontStyle: "bold", fontSize: 7.5, lineColor: NAVY, lineWidth: { bottom: 1 } }, head: [["CANT.", "UNIDAD", "CONCEPTO", "P. UNITARIO", "IVA", "IMPORTE"]], body, columnStyles: { 0: { halign: "right", cellWidth: 40 }, 1: { cellWidth: 58 }, 3: { halign: "right", cellWidth: 72 }, 4: { cellWidth: 50, textColor: GRAY }, 5: { halign: "right", cellWidth: 76 } }, didParseCell: d => { if (d.section === "head" && [0, 3, 5].includes(d.column.index)) d.cell.styles.halign = "right"; } });
   // totales
   const tot = c.desc ? [["Importe", money(c.bruto)], [descTxt(c), "- " + money(c.desc)], ["Subtotal", money(c.sub)]] : [["Subtotal", money(c.sub)]]; if (c.base["0"]) tot.push(["Base tasa 0 %", money(c.base["0"])]); if (c.base.ex) tot.push(["Base exenta", money(c.base.ex)]); tot.push(["IVA 16 %", money(c.iva)]);
@@ -1694,7 +1766,7 @@ function cotPDFBlob(c, folio) {
   if (c.sh.length) { y += 10; doc.setFont("helvetica", "bold"); doc.setFontSize(7.5); doc.setTextColor(...GOLD); doc.text("DETALLE DE ATENCIONES", M, y, { charSpace: 1.2 }); doc.autoTable({ startY: y + 6, margin: { left: M, right: M, bottom: 50, top: 50 }, rowPageBreak: "avoid", theme: "plain", styles: { fontSize: 7.5, cellPadding: 4, textColor: INK, lineColor: LINE, lineWidth: { bottom: .4 } }, headStyles: { fillColor: SOFT, textColor: NAVY, fontStyle: "bold", lineColor: LINE, lineWidth: { bottom: .8 } }, head: [["Fecha", "Enfermera", "Modalidad y servicios", "Horas"]], body: c.sh.map(s => { const sv = s.servicio || {}; return [fmtD(s.fecha) + " " + (s.turno || ""), s.enfermera, [modLabel(modDe(sv, c.p))].concat(sv.servicios || []).filter(Boolean).join(" · "), String(horasDe(sv))]; }), columnStyles: { 0: { cellWidth: 92 }, 1: { cellWidth: 120 }, 3: { halign: "right", cellWidth: 40 } } }); y = doc.lastAutoTable.finalY + 14; }
   // leyendas
   const leg = ["Precios en moneda nacional (MXN). El total incluye los impuestos aplicables (art. 7 Bis, Ley Federal de Protección al Consumidor).",
-    "IVA conforme a la Ley del IVA: medicamentos a tasa 0 % (art. 2-A); insumos, renta de equipo y servicios a tasa 16 %; conceptos exentos según art. 15.",
+    "IVA conforme a la Ley del IVA: medicamentos a tasa 0 % (art. 2-A); servicios de medicina exentos cuando así procede (art. 15, fr. XIV); enfermería, insumos, renta de equipo y demás conceptos a tasa 16 %.",
     "Este documento no es un comprobante fiscal (CFDI). Si requiere factura, solicítela enviando su Constancia de Situación Fiscal dentro del mes en que realice el pago.",
     nota ? "Nota de venta de servicios de enfermería domiciliaria y bienes relacionados." : "Cotización sujeta a la vigencia indicada. Los conceptos pueden variar según la evolución y las indicaciones médicas del paciente.",
     "Sus datos personales se tratan conforme al Aviso de Privacidad de Alleviare (Ley Federal de Protección de Datos Personales en Posesión de los Particulares)."];
@@ -1708,7 +1780,7 @@ async function folioNuevo(serie) {
   if (Store.mode === "sb") return await SB.rpc("api_folio", { p_token: SB.token(), p_serie: serie });
   const k = "folio_" + serie; const f = S.config[k] || { id: k, ultimo: 499 }; f.ultimo = Math.max(+f.ultimo || 499, 499) + 1; Store.put("config", f); return f.ultimo;
 }
-function nextFolio(tipo) { const pre = (tipo === "Nota de venta" ? "NV" : "COT") + "-" + today().slice(2).replace(/-/g, ""); const n = Object.values(S.ventas).filter(x => x.doc === "cot").flatMap(x => x.emitidas || []).filter(x => x.folio.startsWith(pre)).length; return pre + "-" + String(n + 1).padStart(3, "0"); }
+function nextFolio(tipo) { const pre = (tipo === "Nota de venta" ? "NV" : "COT") + "-" + today().slice(2).replace(/-/g, ""); const fs = Object.values(S.ventas).filter(x => x.doc === "venta").map(x => x.folio).concat(Object.values(S.ventas).filter(x => x.doc === "cot").flatMap(x => (x.emitidas || []).map(y => y.folio))).filter(f => f && f.startsWith(pre + "-")); const n = fs.reduce((m, f) => Math.max(m, parseInt(f.slice(pre.length + 1), 10) || 0), 0); return pre + "-" + String(n + 1).padStart(3, "0"); }
 async function openCotDoc() {
   const c = cotizacion(admSel.pid, admSel.desde, admSel.hasta); if (!c) return;
   if (!window.jspdf) return toast("La librería de PDF no cargó");
@@ -1718,8 +1790,7 @@ async function openCotDoc() {
   if (c.q.pago.metodo === "Transferencia" && !e.cuentas.find(x => x.id === c.q.pago.cuentaId)) return toast("Elige la cuenta bancaria para el depósito");
   if (c.q.pago.metodo === "Liga de pago" && !c.q.pago.ligaUrl && !e.ligas.find(x => x.id === c.q.pago.ligaId)) return toast("Elige o pega la liga de pago");
   const ev = admSel.editVenta && S.ventas[admSel.editVenta] && S.ventas[admSel.editVenta].pid === c.p.id ? S.ventas[admSel.editVenta] : null;
-  let num; if (!ev) { try { num = await folioNuevo("venta"); } catch (er) { return toast("No se pudo obtener el folio: " + er.code); } }
-  const folio = ev ? ev.folio : (c.q.tipo === "Nota de venta" ? "NV-" : "COT-") + num; let blob; try { blob = cotPDFBlob(c, folio); } catch (er) { console.error(er); return toast("No se pudo generar el PDF: " + er.message); }
+  const folio = ev ? ev.folio : nextFolio(c.q.tipo); let blob; try { blob = cotPDFBlob(c, folio); } catch (er) { console.error(er); return toast("No se pudo generar el PDF: " + er.message); }
   const q = c.q; q.emitidas = (q.emitidas || []).concat([{ folio, tipo: q.tipo || "Cotización", total: c.total, t: iso(), por: APP.user, desde: admSel.desde, hasta: admSel.hasta }]); S.ventas[q.id] = q; Store.put("ventas", q);
   const cl0 = q.cliente || {}; const nv = { id: "venta_" + folio, doc: "venta", folio, tipo: q.tipo || "Cotización", pid: c.p.id, srvId: c.srv ? c.srv.id : "", paciente: c.p.nombre, cliente: cl0.nombre || c.p.responsable || c.p.nombre, tel: cl0.tel || "", correo: cl0.correo || "", desde: admSel.desde, hasta: admSel.hasta, bruto: c.bruto, descuento: c.desc, descTxt: c.desc ? descTxt(c) : "", sub: c.sub, iva: c.iva, total: c.total, base: c.base, metodo: q.pago.metodo, lines: c.act.map(l => ({ concepto: l.concepto, cat: l.cat, unidad: l.unidad, cant: l.cant, pu: l.pu, iva: l.iva })), pagos: [], t: iso(), por: APP.user, estadoCot: q.tipo === "Nota de venta" ? "" : "Enviada" };
   if (ev) { const keep = { id: ev.id, t: ev.t, por: ev.por, pagos: ev.pagos || [], estadoCot: ev.estadoCot, aceptadaEn: ev.aceptadaEn, aceptadaPor: ev.aceptadaPor, deuda: ev.deuda, deudaEn: ev.deudaEn }; if (nv.tipo === "Nota de venta") keep.estadoCot = ""; else if (ev.tipo === "Nota de venta") keep.estadoCot = "Enviada"; Object.assign(ev, nv, keep, { editadaEn: iso(), editadaPor: APP.user, ediciones: (ev.ediciones || 0) + 1 }); Store.put("ventas", ev); admSel.editVenta = ""; } else Store.put("ventas", nv);
